@@ -3,6 +3,9 @@ from engine.portfolio import Portfolio
 from engine.execution import ExecutionEngine
 from engine.backtest import BacktestEngine
 from engine.metrics import PerformanceMetrics
+from engine.costs import TransactionCostModel
+from engine.position_sizing import PositionSizer
+from engine.volatility import VolatilityModel
 from strategies.moving_average import MovingAverageStrategy
 
 # Load market data
@@ -20,9 +23,25 @@ portfolio = Portfolio(
     initial_capital=10000
 )
 
+# Calulating cost
+cost_model = TransactionCostModel(
+  commission_rate=0.001,
+  slippage_rate=0.0005
+)
+
+# Volatility model
+volatility_model = VolatilityModel()
+
 # Create execution engine
 execution_engine = ExecutionEngine(
-    portfolio
+    portfolio,
+    cost_model
+)
+
+position_sizer = PositionSizer(
+  base_allocation=0.20,
+  max_allocation=0.20,
+  target_volatility=0.20
 )
 
 # Create backtest engine
@@ -31,6 +50,8 @@ backtest = BacktestEngine(
     strategy=strategy,
     portfolio=portfolio,
     execution_engine=execution_engine,
+    position_sizer=position_sizer,
+    volatility_model=volatility_model,
     symbol="AAPL"
 )
 
@@ -66,55 +87,3 @@ for snapshot in result["portfolio_history"]:
         f"{snapshot['date'].date()} | "
         f"Portfolio Value: {snapshot['portfolio_value']}"
     )
-
-print("\n===== PERFORMANCE =====")
-
-print(
-  f"Total Return: "
-  f"{metrics.total_return():.2%}"
-)
-
-print(
-  f"Annualized Return: "
-  f"{metrics.annualized_return():.2%}"
-)
-
-print(
-  f"Annualized Volatility: "
-  f"{metrics.annualized_volatility():.2%}"
-)
-
-print(
-  f"Sharpe Ratio: "
-  f"{metrics.sharpe_ratio():.2f}"
-)
-
-print(
-  f"Sortino Ratio: "
-  f"{metrics.sortino_ratio():.2f}"
-)
-
-print(
-  f"Maximum Drawdown: "
-  f"{metrics.maximum_drawdown():.2%}"
-)
-
-print(
-  f"Win Rate: "
-  f"{metrics.win_rate():.2%}"
-)
-
-print(
-  f"Average Win: "
-  f"{metrics.average_win():.2f}"
-)
-
-print(
-  f"Average Loss: "
-  f"{metrics.average_loss():.2f}"
-)
-
-print(
-  f"Profit Factor: "
-  f"{metrics.profit_factor():.2f}"
-)
