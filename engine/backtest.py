@@ -1,4 +1,5 @@
 from engine.order import Order
+from engine.volatility import VolatilityModel
 
 class BacktestEngine:
 
@@ -8,12 +9,16 @@ class BacktestEngine:
     strategy,
     portfolio,
     execution_engine,
+    position_sizer,
+    volatility_model,
     symbol
   ):
     self.data = data
     self.strategy = strategy
     self.portfolio = portfolio
     self.execution_engine = execution_engine
+    self.position_sizer = position_sizer
+    self.volatility_model=volatility_model
     self.symbol = symbol
 
   def run(self):
@@ -24,12 +29,45 @@ class BacktestEngine:
       signal = row["signal"]
       price = row["Close"]
 
-      if (signal == "BUY"):
+    if signal == "BUY":
+
+      confidence = row["signal_strength"]
+
+      historical_prices = (
+        result.loc[:row.name, "Close"]
+        .tolist()
+      )
+
+      volatility = self.volatility_model.calculate(
+        prices=historical_prices,
+        window=20
+      )
+
+      if volatility > 0:
+
+        quantity = self.position_sizer.calculate_quantity(
+          available_cash=self.portfolio.cash,
+          price=price,
+          signal_confidence=confidence,
+          volatility=volatility
+        )
+
+        print(
+  f"DEBUG | Volatility: {volatility:.4f} | "
+  f"Confidence: {confidence:.4f} | "
+  f"Quantity: {quantity}"
+)
+
+      else:
+        quantity = 0
+
+      if quantity > 0:
+
         order = Order(
-            symbol=self.symbol,
-            side="BUY",
-            quantity=1,
-            price=price
+          symbol=self.symbol,
+          side="BUY",
+          quantity=quantity,
+          price=price
         )
 
         self.execution_engine.execute(order)

@@ -5,34 +5,38 @@ class Portfolio:
     self.position = 0
     self.trade_history = []
 
-  def buy(self, quantity, price):
+  def buy(self, quantity, price, transaction_cost=0):
     cost = quantity * price
+    total_cost = cost + transaction_cost
 
-    if(cost > self.cash):
+    if(total_cost > self.cash):
       raise ValueError("Insufficient cash to execute the buy order.")
 
-    self.cash -= cost
+    self.cash -= total_cost
     self.position += quantity
 
     self.trade_history.append({
       "side": "BUY",
       "quantity": quantity,
-      "price": price
+      "price": price,
+      "transaction_cost": transaction_cost
     })
 
-  def sell(self, quantity, price):
+  def sell(self, quantity, price, transaction_cost=0):
     if(quantity > self.position):
       raise ValueError("Cannot sell more shares than currently owned.")
 
     revenue = quantity * price
+    net_revenue = revenue - transaction_cost
 
-    self.cash += revenue
+    self.cash += net_revenue
     self.position -= quantity
 
     self.trade_history.append({
       "side": "BUY",
       "quantity": quantity,
-      "price": price
+      "price": price,
+      "transaction_cost": transaction_cost
     })
 
   def get_value(self, current_price):
