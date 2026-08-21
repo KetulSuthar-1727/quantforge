@@ -111,15 +111,48 @@ Position Quantity:
 
 ## Historical Volatility
 
-Daily log return:
+Historical volatility tells us how much the price of an asset has moved
+in the past.
 
-r_t = ln(P_t / P_(t-1))
+We calculate it using the asset's historical closing prices.
 
-Annualized Volatility:
+### Step 1: Calculate Daily Return
 
-σ_annual = StdDev(r_t) × √252
+First, we calculate how much the price changed from one day to the next.
 
-Where:
-- P_t = current closing price
-- P_(t-1) = previous closing price
-- 252 = approximate number of trading days per year
+Daily Return = (Today's Price - Yesterday's Price) / Yesterday's Price
+
+
+### Step 2: Calculate Average Price Movement
+
+We calculate the standard deviation of the daily returns.
+
+This tells us how much the daily returns normally vary from their average.
+
+
+### Step 3: Convert to Annual Volatility
+
+Because our data is based on daily prices, we convert the daily volatility
+into an approximate yearly volatility.
+
+Annual Volatility = Daily Volatility × √252
+
+
+We use 252 because the stock market has approximately 252 trading days
+in a year.
+
+### Example
+
+If the calculated annual volatility is:
+
+35.88%
+
+it means that the asset has historically experienced relatively large
+price movements, compared with an asset having a lower volatility.
+
+QuantForge uses this volatility to adjust position size:
+
+- Higher volatility → Smaller position
+- Lower volatility → Larger position
+
+This helps reduce risk when the market becomes more volatile.
