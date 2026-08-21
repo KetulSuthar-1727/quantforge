@@ -129,7 +129,6 @@ We calculate the standard deviation of the daily returns.
 
 This tells us how much the daily returns normally vary from their average.
 
-
 ### Step 3: Convert to Annual Volatility
 
 Because our data is based on daily prices, we convert the daily volatility
@@ -137,9 +136,7 @@ into an approximate yearly volatility.
 
 Annual Volatility = Daily Volatility × √252
 
-
-We use 252 because the stock market has approximately 252 trading days
-in a year.
+252 is used because the stock market has approximately 252 trading days in a year.
 
 ### Example
 
