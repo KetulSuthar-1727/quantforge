@@ -22,55 +22,58 @@ class BacktestEngine:
     self.symbol = symbol
 
   def run(self):
-    result = self.strategy.generate_signal(self.data)
+
+    result = self.strategy.generate_signal(
+      self.data
+    )
+
     portfolio_history = []
+
     for i, row in result.iterrows():
 
       signal = row["signal"]
       price = row["Close"]
 
-    if signal == "BUY":
+      if signal == "BUY":
 
-      confidence = row["signal_strength"]
+        confidence = row["signal_strength"]
 
-      historical_prices = (
-        result.loc[:row.name, "Close"]
-        .tolist()
-      )
-
-      volatility = self.volatility_model.calculate(
-        prices=historical_prices,
-        window=20
-      )
-
-      if volatility > 0:
-
-        quantity = self.position_sizer.calculate_quantity(
-          available_cash=self.portfolio.cash,
-          price=price,
-          signal_confidence=confidence,
-          volatility=volatility
+        historical_prices = (
+          result.loc[
+            :row.name,
+            "Close"
+          ].tolist()
         )
 
-        print(
-  f"DEBUG | Volatility: {volatility:.4f} | "
-  f"Confidence: {confidence:.4f} | "
-  f"Quantity: {quantity}"
-)
-
-      else:
-        quantity = 0
-
-      if quantity > 0:
-
-        order = Order(
-          symbol=self.symbol,
-          side="BUY",
-          quantity=quantity,
-          price=price
+        volatility = self.volatility_model.calculate(
+          prices=historical_prices,
+          window=20
         )
 
-        self.execution_engine.execute(order)
+        if volatility > 0:
+
+          quantity = self.position_sizer.calculate_quantity(
+            available_cash=self.portfolio.cash,
+            price=price,
+            signal_confidence=confidence,
+            volatility=volatility
+          )
+
+        else:
+          quantity = 0
+
+        if quantity > 0:
+
+          order = Order(
+            symbol=self.symbol,
+            side="BUY",
+            quantity=quantity,
+            price=price
+          )
+
+          self.execution_engine.execute(
+            order
+          )
 
       elif signal == "SELL":
 
@@ -82,20 +85,30 @@ class BacktestEngine:
             quantity=self.portfolio.position,
             price=price
           )
-          self.execution_engine.execute(order)
 
-      portfolio_value = self.portfolio.get_value(price)
+          self.execution_engine.execute(
+            order
+          )
+
+      portfolio_value = (
+        self.portfolio.get_value(price)
+      )
+
       portfolio_history.append({
         "date": row["Date"],
         "portfolio_value": portfolio_value
       })
 
     final_price = result.iloc[-1]["Close"]
-    final_value = self.portfolio.get_value(final_price)
+
+    final_value = (
+      self.portfolio.get_value(final_price)
+    )
+
     return {
-        "final_value": final_value,
-        "cash": self.portfolio.cash,
-        "position": self.portfolio.position,
-        "trade_history": self.portfolio.trade_history,
-        "portfolio_history": portfolio_history
+      "final_value": final_value,
+      "cash": self.portfolio.cash,
+      "position": self.portfolio.position,
+      "trade_history": self.portfolio.trade_history,
+      "portfolio_history": portfolio_history
     }
