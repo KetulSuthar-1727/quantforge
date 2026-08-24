@@ -6,6 +6,8 @@ from engine.metrics import PerformanceMetrics
 from engine.costs import TransactionCostModel
 from engine.position_sizing import PositionSizer
 from engine.volatility import VolatilityModel
+from engine.benchmark import BuyAndHoldBenchmark
+from visualization.equity_curve import plot_equity_curve
 from strategies.moving_average import MovingAverageStrategy
 
 # Load market data
@@ -58,6 +60,19 @@ backtest = BacktestEngine(
 # Run backtest
 result = backtest.run()
 
+# Benchmark results
+benchmark = BuyAndHoldBenchmark(
+  initial_capital=10000
+)
+
+prices = data["Close"].tolist()
+dates = data.index.tolist()
+
+benchmark_result = benchmark.run(
+  prices,
+  dates
+)
+
 metrics = PerformanceMetrics(
   initial_capital=10000,
   portfolio_history=result["portfolio_history"],
@@ -65,6 +80,11 @@ metrics = PerformanceMetrics(
 )
 
 total_return = metrics.total_return()
+
+plot_equity_curve(
+  strategy_history=result["portfolio_history"],
+  benchmark_history=benchmark_result["portfolio_history"]
+)
 
 print("\n===== QUANTFORGE BACKTEST =====")
 
@@ -87,3 +107,15 @@ for snapshot in result["portfolio_history"]:
         f"{snapshot['date'].date()} | "
         f"Portfolio Value: {snapshot['portfolio_value']}"
     )
+
+print("\n===== BUY & HOLD BENCHMARK =====")
+
+print(
+  "Final Value:",
+  benchmark_result["final_value"]
+)
+
+print(
+  "Total Return:",
+  f"{benchmark_result['total_return']:.2%}"
+)
