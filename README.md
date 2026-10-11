@@ -153,3 +153,7 @@ QuantForge uses this volatility to adjust position size:
 - Lower volatility → Larger position
 
 This helps reduce risk when the market becomes more volatile.
+
+## Run GUI Streamlit
+
+streamlit run app.py
