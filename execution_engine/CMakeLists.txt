@@ -12,6 +12,14 @@ add_library(execution_engine
     src/ExecutionEngine.cpp
 )
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(execution_engine PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
+endif()
+
 target_include_directories(execution_engine
     PUBLIC include
 )
