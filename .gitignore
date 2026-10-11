@@ -2,3 +2,6 @@ venv/
 __pycache__/
 *.pyc
 .env
+# C++ compiled executables
+/execution_engine_test
+/test_matching_engine
