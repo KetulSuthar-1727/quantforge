@@ -12,6 +12,10 @@ add_library(execution_engine
     src/ExecutionEngine.cpp
 )
 
+set_target_properties(execution_engine PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(execution_engine PRIVATE
         -Wall
@@ -22,6 +26,17 @@ endif()
 
 target_include_directories(execution_engine
     PUBLIC include
+)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+find_package(pybind11 CONFIG REQUIRED)
+
+pybind11_add_module(quantforge_cpp
+    src/bindings.cpp
+)
+
+target_link_libraries(quantforge_cpp
+    PRIVATE execution_engine
 )
 
 include(CTest)
