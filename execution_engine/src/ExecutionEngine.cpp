@@ -14,7 +14,6 @@ bool ExecutionEngine::isValidOrder(const Order& order) const {
          order.quantity > 0;
 }
 
-
 OrderStatus ExecutionEngine::submitOrder(const Order& order) {
   if (!isValidOrder(order)) {
     return OrderStatus::REJECTED;
@@ -24,6 +23,14 @@ OrderStatus ExecutionEngine::submitOrder(const Order& order) {
     return OrderStatus::REJECTED;
   }
 
+  if (!active_symbol.empty() && order.symbol != active_symbol) {
+    return OrderStatus::REJECTED;
+  }
+
+  if (active_symbol.empty()) {
+    active_symbol = order.symbol;
+  }
+
   seen_order_ids.insert(order.id);
 
   order_book.addOrder(order);
@@ -31,7 +38,6 @@ OrderStatus ExecutionEngine::submitOrder(const Order& order) {
 
   return OrderStatus::ACCEPTED;
 }
-
 
 const std::vector<Trade>& ExecutionEngine::getTradeHistory() const {
   return matching_engine.getTradeHistory();

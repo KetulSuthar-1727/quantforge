@@ -15,6 +15,7 @@ private:
   OrderBook& order_book;
   MatchingEngine matching_engine;
   std::unordered_set<int> seen_order_ids;
+  std::string active_symbol;
 
   bool isValidOrder(const Order& order) const;
 
