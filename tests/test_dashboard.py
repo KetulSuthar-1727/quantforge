@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from engine.data import DataHandler
+
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 
 
 def test_dashboard_shows_strategy_and_message_for_single_market_row(monkeypatch):
@@ -15,7 +19,7 @@ def test_dashboard_shows_strategy_and_message_for_single_market_row(monkeypatch)
     })
     monkeypatch.setattr(DataHandler, "load_data", lambda self: one_row.copy())
 
-    app = AppTest.from_file("app.py").run()
+    app = AppTest.from_file(str(APP_PATH)).run()
     app.button[0].click().run()
 
     assert not app.exception
@@ -34,7 +38,7 @@ def test_dashboard_keeps_benchmark_comparison_for_two_market_rows(monkeypatch):
     })
     monkeypatch.setattr(DataHandler, "load_data", lambda self: two_rows.copy())
 
-    app = AppTest.from_file("app.py").run()
+    app = AppTest.from_file(str(APP_PATH)).run()
     app.button[0].click().run()
 
     assert not app.exception
