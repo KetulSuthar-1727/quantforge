@@ -1,3 +1,11 @@
+MINIMUM_BENCHMARK_OBSERVATIONS = 2
+
+
+def has_sufficient_benchmark_history(prices):
+  """Return whether a price series supports a meaningful benchmark path."""
+  return len(prices) >= MINIMUM_BENCHMARK_OBSERVATIONS
+
+
 class BuyAndHoldBenchmark:
 
   def __init__(
@@ -12,7 +20,7 @@ class BuyAndHoldBenchmark:
     dates
   ):
 
-    if len(prices) < 2:
+    if not has_sufficient_benchmark_history(prices):
       raise ValueError(
         "At least two prices are required."
       )

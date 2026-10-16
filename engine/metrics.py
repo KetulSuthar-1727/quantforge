@@ -1,299 +1,185 @@
+"""Performance statistics for portfolio and execution histories."""
+
 import math
+from datetime import date, datetime
 
 
 class PerformanceMetrics:
-
-  def __init__(
-    self,
-    initial_capital,
-    portfolio_history,
-    trade_history
-  ):
-    self.initial_capital = initial_capital
-    self.portfolio_history = portfolio_history
-    self.trade_history = trade_history
-
-  def portfolio_values(self):
-    return [
-      snapshot["portfolio_value"]
-      for snapshot in self.portfolio_history
-    ]
-
-  def total_return(self):
-    values = self.portfolio_values()
-
-    if not values:
-      return 0
-
-    final_value = values[-1]
-
-    return (
-      (final_value - self.initial_capital)
-      / self.initial_capital
-    )
-
-  def daily_returns(self):
-    values = self.portfolio_values()
-
-    returns = []
-
-    for i in range(1, len(values)):
-      previous_value = values[i - 1]
-      current_value = values[i]
-
-      if previous_value == 0:
-        returns.append(0)
-      else:
-        returns.append(
-          (current_value - previous_value)
-          / previous_value
-        )
-
-    return returns
-
-  def annualized_return(self):
-    if not self.portfolio_history:
-      return 0
-
-    initial_value = self.initial_capital
-    final_value = self.portfolio_values()[-1]
-
-    if initial_value <= 0 or final_value <= 0:
-      return 0
-
-    start_date = self.portfolio_history[0]["date"]
-    end_date = self.portfolio_history[-1]["date"]
-
-    days = (end_date - start_date).days
-
-    if days <= 0:
-      return self.total_return()
-
-    years = days / 365.25
-
-    return (
-      (final_value / initial_value)
-      ** (1 / years)
-    ) - 1
-
-  def annualized_volatility(self):
-    returns = self.daily_returns()
-
-    if len(returns) < 2:
-      return 0
-
-    mean_return = sum(returns) / len(returns)
-
-    variance = sum(
-      (r - mean_return) ** 2
-      for r in returns
-    ) / (len(returns) - 1)
-
-    daily_volatility = math.sqrt(variance)
-
-    return daily_volatility * math.sqrt(252)
-
-  def sharpe_ratio(self, risk_free_rate=0):
-    returns = self.daily_returns()
-
-    if len(returns) < 2:
-      return 0
-
-    mean_return = sum(returns) / len(returns)
-
-    variance = sum(
-      (r - mean_return) ** 2
-      for r in returns
-    ) / (len(returns) - 1)
-
-    daily_volatility = math.sqrt(variance)
-
-    if daily_volatility == 0:
-      return 0
-
-    daily_risk_free_rate = (
-      risk_free_rate / 252
-    )
-
-    excess_returns = [
-      r - daily_risk_free_rate
-      for r in returns
-    ]
-
-    mean_excess_return = (
-      sum(excess_returns)
-      / len(excess_returns)
-    )
-
-    return (
-      mean_excess_return
-      / daily_volatility
-    ) * math.sqrt(252)
-
-  def sortino_ratio(self, risk_free_rate=0):
-    returns = self.daily_returns()
-
-    if len(returns) < 2:
-      return 0
-
-    daily_risk_free_rate = (
-      risk_free_rate / 252
-    )
-
-    excess_returns = [
-      r - daily_risk_free_rate
-      for r in returns
-    ]
-
-    negative_returns = [
-      r
-      for r in excess_returns
-      if r < 0
-    ]
-
-    if not negative_returns:
-      return 0
-
-    downside_variance = sum(
-      r ** 2
-      for r in negative_returns
-    ) / len(negative_returns)
-
-    downside_deviation = math.sqrt(
-      downside_variance
-    )
-
-    if downside_deviation == 0:
-      return 0
-
-    mean_excess_return = (
-      sum(excess_returns)
-      / len(excess_returns)
-    )
-
-    return (
-      mean_excess_return
-      / downside_deviation
-    ) * math.sqrt(252)
-
-  def maximum_drawdown(self):
-    values = self.portfolio_values()
-
-    if not values:
-      return 0
-
-    peak = values[0]
-    max_drawdown = 0
-
-    for value in values:
-      if value > peak:
-        peak = value
-
-      drawdown = (
-        (value - peak)
-        / peak
-      )
-
-      if drawdown < max_drawdown:
-        max_drawdown = drawdown
-
-    return max_drawdown
-
-  def trade_pnl(self):
-    trades = self.trade_history
-
-    pnl = []
-    buy_price = None
-
-    for trade in trades:
-
-      if trade["side"] == "BUY":
-        buy_price = trade["price"]
-
-      elif (
-        trade["side"] == "SELL"
-        and buy_price is not None
-      ):
-        profit = (
-          trade["price"]
-          - buy_price
-        ) * trade["quantity"]
-
-        pnl.append(profit)
-
-        buy_price = None
-
-    return pnl
-
-  def win_rate(self):
-    pnl = self.trade_pnl()
-
-    if not pnl:
-      return 0
-
-    winning_trades = [
-      value
-      for value in pnl
-      if value > 0
-    ]
-
-    return (
-      len(winning_trades)
-      / len(pnl)
-    )
-
-  def average_win(self):
-    pnl = self.trade_pnl()
-
-    winning_trades = [
-      value
-      for value in pnl
-      if value > 0
-    ]
-
-    if not winning_trades:
-      return 0
-
-    return (
-      sum(winning_trades)
-      / len(winning_trades)
-    )
-
-  def average_loss(self):
-    pnl = self.trade_pnl()
-
-    losing_trades = [
-      value
-      for value in pnl
-      if value < 0
-    ]
-
-    if not losing_trades:
-      return 0
-
-    return (
-      sum(losing_trades)
-      / len(losing_trades)
-    )
-
-  def profit_factor(self):
-    pnl = self.trade_pnl()
-
-    gross_profit = sum(
-      value
-      for value in pnl
-      if value > 0
-    )
-
-    gross_loss = abs(
-      sum(
-        value
-        for value in pnl
-        if value < 0
-      )
-    )
-
-    if gross_loss == 0:
-      return 0
-
-    return gross_profit / gross_loss
+    """Calculate returns, risk, and FIFO realized P&L from a backtest.
+
+    Risk-free rates are annual decimal rates. Portfolio history is expected
+    to contain dated ``portfolio_value`` snapshots in chronological order.
+    """
+
+    def __init__(self, initial_capital, portfolio_history, trade_history):
+        self.initial_capital = float(initial_capital)
+        if not math.isfinite(self.initial_capital) or self.initial_capital <= 0:
+            raise ValueError("initial_capital must be a finite positive value")
+        self.portfolio_history = list(portfolio_history)
+        self.trade_history = list(trade_history)
+
+    def portfolio_values(self):
+        values = []
+        for snapshot in self.portfolio_history:
+            value = float(snapshot["portfolio_value"])
+            if not math.isfinite(value):
+                raise ValueError("portfolio values must be finite")
+            values.append(value)
+        return values
+
+    def total_return(self):
+        values = self.portfolio_values()
+        return values[-1] / self.initial_capital - 1 if values else 0.0
+
+    def daily_returns(self):
+        """Return simple period-to-period returns; zero/nonpositive bases fail."""
+        values = self.portfolio_values()
+        returns = []
+        for previous, current in zip(values, values[1:]):
+            if previous <= 0:
+                raise ValueError("daily returns require positive prior portfolio values")
+            returns.append(current / previous - 1.0)
+        return returns
+
+    @staticmethod
+    def _as_datetime(value):
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return datetime.combine(value, datetime.min.time())
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError("portfolio history contains an invalid date") from exc
+        raise ValueError("portfolio history dates must be dates or ISO date strings")
+
+    def annualized_return(self):
+        """CAGR from initial capital to final value over elapsed calendar time.
+
+        A nonpositive ending value has no meaningful fractional CAGR and raises
+        ValueError. Histories spanning zero elapsed time report total return.
+        """
+        if not self.portfolio_history:
+            return 0.0
+        values = self.portfolio_values()
+        dates = [self._as_datetime(snapshot["date"]) for snapshot in self.portfolio_history]
+        if any(later < earlier for earlier, later in zip(dates, dates[1:])):
+            raise ValueError("portfolio history dates must be chronological")
+        start, end = dates[0], dates[-1]
+        if values[-1] <= 0:
+            raise ValueError("annualized return is undefined for a nonpositive final value")
+        elapsed_days = (end - start).total_seconds() / 86400
+        if elapsed_days == 0:
+            return self.total_return()
+        years = elapsed_days / 365.25
+        return (values[-1] / self.initial_capital) ** (1.0 / years) - 1.0
+
+    @staticmethod
+    def _sample_std(values):
+        if len(values) < 2:
+            return 0.0
+        mean = sum(values) / len(values)
+        deviation = math.sqrt(sum((value - mean) ** 2 for value in values) / (len(values) - 1))
+        return 0.0 if deviation < 1e-15 else deviation
+
+    def annualized_volatility(self):
+        return self._sample_std(self.daily_returns()) * math.sqrt(252)
+
+    @staticmethod
+    def _daily_risk_free_rate(risk_free_rate):
+        rate = float(risk_free_rate)
+        if not math.isfinite(rate) or rate <= -1:
+            raise ValueError("risk_free_rate must be finite and greater than -1")
+        return (1.0 + rate) ** (1.0 / 252.0) - 1.0
+
+    def sharpe_ratio(self, risk_free_rate=0.0):
+        returns = self.daily_returns()
+        if len(returns) < 2:
+            return 0.0
+        excess_mean = sum(returns) / len(returns) - self._daily_risk_free_rate(risk_free_rate)
+        deviation = self._sample_std(returns)
+        return excess_mean / deviation * math.sqrt(252) if deviation else 0.0
+
+    def sortino_ratio(self, risk_free_rate=0.0):
+        returns = self.daily_returns()
+        if not returns:
+            return 0.0
+        daily_rf = self._daily_risk_free_rate(risk_free_rate)
+        excess = [value - daily_rf for value in returns]
+        downside = math.sqrt(sum(min(value, 0.0) ** 2 for value in excess) / len(excess))
+        return (sum(excess) / len(excess)) / downside * math.sqrt(252) if downside > 1e-15 else 0.0
+
+    def drawdowns(self):
+        """Return peak-relative drawdowns aligned to portfolio snapshots.
+
+        Every observation must have a positive running peak. Histories that
+        start at or below zero have no valid peak-relative drawdown baseline,
+        so they raise ValueError instead of reporting a misleading zero.
+        """
+        values = self.portfolio_values()
+        peak = None
+        output = []
+        for value in values:
+            peak = value if peak is None else max(peak, value)
+            if peak <= 0:
+                raise ValueError("drawdown requires a positive running portfolio peak")
+            output.append(value / peak - 1.0)
+        return output
+
+    def maximum_drawdown(self):
+        return min(self.drawdowns(), default=0.0)
+
+    def trade_pnl(self):
+        """Return FIFO realized P&L per matched quantity block, net of costs.
+
+        Entry and exit commission is allocated per share. Unmatched buys remain
+        open and are excluded; sells beyond recorded long inventory are ignored.
+        """
+        lots = []
+        realized = []
+        for trade in self.trade_history:
+            side = trade.get("side")
+            quantity = int(trade.get("quantity", 0))
+            price = float(trade.get("price", 0.0))
+            cost = float(trade.get("transaction_cost", 0.0))
+            if quantity < 0 or not all(map(math.isfinite, (price, cost))) or price < 0 or cost < 0:
+                raise ValueError("trade quantity, price, and transaction cost must be nonnegative")
+            if quantity == 0:
+                continue
+            if side == "BUY":
+                lots.append([quantity, price + cost / quantity])
+            elif side == "SELL":
+                remaining = quantity
+                proceeds = price - cost / quantity
+                while remaining and lots:
+                    lot = lots[0]
+                    matched = min(remaining, lot[0])
+                    realized.append((proceeds - lot[1]) * matched)
+                    lot[0] -= matched
+                    remaining -= matched
+                    if lot[0] == 0:
+                        lots.pop(0)
+            else:
+                raise ValueError("trade side must be BUY or SELL")
+        return realized
+
+    def win_rate(self):
+        pnl = self.trade_pnl()
+        return sum(value > 0 for value in pnl) / len(pnl) if pnl else 0.0
+
+    def average_win(self):
+        wins = [value for value in self.trade_pnl() if value > 0]
+        return sum(wins) / len(wins) if wins else 0.0
+
+    def average_loss(self):
+        losses = [value for value in self.trade_pnl() if value < 0]
+        return sum(losses) / len(losses) if losses else 0.0
+
+    def profit_factor(self):
+        pnl = self.trade_pnl()
+        gains = sum(value for value in pnl if value > 0)
+        losses = abs(sum(value for value in pnl if value < 0))
+        if losses == 0:
+            return math.inf if gains > 0 else 0.0
+        return gains / losses

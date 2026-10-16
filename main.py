@@ -66,7 +66,7 @@ benchmark = BuyAndHoldBenchmark(
 )
 
 prices = data["Close"].tolist()
-dates = data.index.tolist()
+dates = data["Date"].tolist()
 
 benchmark_result = benchmark.run(
   prices,
@@ -89,6 +89,16 @@ plot_equity_curve(
 print("\n===== QUANTFORGE BACKTEST =====")
 
 print("Final Portfolio Value:", result["final_value"])
+print("Total Return:", f"{metrics.total_return():.2%}")
+print("Annualized Return:", f"{metrics.annualized_return():.2%}")
+print("Annualized Volatility:", f"{metrics.annualized_volatility():.2%}")
+print("Sharpe Ratio:", f"{metrics.sharpe_ratio():.3f}")
+print("Sortino Ratio:", f"{metrics.sortino_ratio():.3f}")
+print("Maximum Drawdown:", f"{metrics.maximum_drawdown():.2%}")
+print("Closed FIFO Matches:", len(metrics.trade_pnl()))
+print("Win Rate:", f"{metrics.win_rate():.2%}")
+profit_factor = metrics.profit_factor()
+print("Profit Factor:", "infinite (no losses)" if profit_factor == float("inf") else f"{profit_factor:.3f}")
 print("Cash:", result["cash"])
 print("Position:", result["position"])
 print("\n===== TRADE HISTORY =====")
@@ -97,7 +107,8 @@ for trade in result["trade_history"]:
     print(
         f"{trade['side']} | "
         f"Quantity: {trade['quantity']} | "
-        f"Price: {trade['price']}"
+        f"Price: {trade['price']:.4f} | "
+        f"Transaction cost: {trade['transaction_cost']:.4f}"
     )
 
 print("\n===== PORTFOLIO HISTORY =====")
@@ -119,3 +130,4 @@ print(
   "Total Return:",
   f"{benchmark_result['total_return']:.2%}"
 )
+print("Strategy excess return:", f"{metrics.total_return() - benchmark_result['total_return']:.2%}")

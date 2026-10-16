@@ -33,7 +33,7 @@ class Portfolio:
     self.position -= quantity
 
     self.trade_history.append({
-      "side": "BUY",
+      "side": "SELL",
       "quantity": quantity,
       "price": price,
       "transaction_cost": transaction_cost
