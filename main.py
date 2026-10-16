@@ -66,7 +66,7 @@ benchmark = BuyAndHoldBenchmark(
 )
 
 prices = data["Close"].tolist()
-dates = data.index.tolist()
+dates = data["Date"].tolist()
 
 benchmark_result = benchmark.run(
   prices,
