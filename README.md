@@ -9,7 +9,11 @@ QuantForge is a local research project for testing historical trading strategies
 - Next-bar-open order execution with close-of-bar portfolio valuation.
 - Buy-and-hold comparison on the same market dates and initial capital.
 - Return, volatility, Sharpe, Sortino, drawdown, and FIFO realized trade statistics.
-- Streamlit dashboard, CLI backtest, C++ engine, and deterministic Python/C++ tests.
+- Read-only US stock market-data retrieval through the Alpaca Market Data API.
+- Market-data validation, pagination, bounded retries, and sanitized provider errors.
+- Streamlit dashboard with historical backtesting and a separate market-data explorer.
+- Standalone C++ order-book and matching/execution engine exposed to Python through pybind11.
+- Deterministic Python and C++ tests.
 
 ## Position sizing and volatility adjustment
 
@@ -35,6 +39,7 @@ This formula describes the current implementation, not a guarantee of a fixed ri
 
 ```text
 engine/                 Python backtest, portfolio, data, costs, metrics
+engine/market_data/     Market-data interface, Alpaca provider, validation, errors
 strategies/             Trading strategies
 execution_engine/       C++ engine, pybind11 bindings, and CMake configuration
 tests/                  Python and C++ tests
@@ -42,6 +47,7 @@ data/market_data.csv    Sample historical OHLCV input
 app.py                  Streamlit dashboard
 main.py                 CLI backtest
 visualization/          Matplotlib equity-curve helper
+build/                  Generated CMake build and Python extension (local)
 ```
 
 ## Requirements and setup
@@ -66,6 +72,61 @@ cmake --build build --parallel
 ```
 
 The extension is emitted under `build/`. Include that directory on `PYTHONPATH` when running integration tests.
+
+## Read-only US market data
+
+QuantForge includes an Alpaca market-data provider for retrieving US stock OHLCV bars. The Streamlit dashboard exposes this functionality in a separate **US Market Data Explorer**. It is independent of the CSV-based historical backtest workflow.
+
+### Configure Alpaca credentials
+
+Create an Alpaca account and obtain market-data API credentials from the provider. Add the following variables to a local `.env` file in the repository root:
+
+```dotenv
+ALPACA_API_KEY=your_api_key
+ALPACA_SECRET_KEY=your_secret_key
+```
+
+Replace the placeholder values locally. Never commit `.env`, paste credentials into source code, or include credentials in logs or screenshots. The repository's `.gitignore` should exclude `.env`.
+
+Install the project's dependencies using the requirements file:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+The dashboard loads `.env` when the market-data request is submitted. The historical CSV backtest does not require Alpaca credentials.
+
+### Use the market-data explorer
+
+Start the dashboard:
+
+```bash
+streamlit run app.py
+```
+
+Open **US Market Data Explorer**, expand **Fetch intraday market data**, enter a US stock symbol, select an interval, and click **Fetch market data**.
+
+Supported intervals are:
+
+| Interval | Meaning |
+|---|---|
+| `1Min` | One-minute bars |
+| `5Min` | Five-minute bars |
+| `15Min` | Fifteen-minute bars |
+| `1Hour` | One-hour bars |
+| `1Day` | Daily bars |
+
+The explorer displays the retrieved bars, a close-price chart, the latest bar timestamp in UTC, and a conservative freshness warning.
+
+### Data validation and limitations
+
+The provider normalizes returned data into the canonical columns `Date`, `Open`, `High`, `Low`, `Close`, and `Volume`. Validation checks required columns, timestamps, numeric and finite values, positive prices, nonnegative volume, OHLC consistency, and duplicate timestamps. Results are sorted chronologically.
+
+Requests support pagination and bounded retries for transient network failures and selected retryable HTTP responses. Authentication and other permanent failures are reported as sanitized errors.
+
+The default feed is `iex`. Available feed settings depend on Alpaca account access and provider support. IEX data must not be treated as consolidated coverage of every US trading venue. Data availability, permissions, market hours, holidays, and feed coverage can affect the latest timestamp. The dashboard's freshness warning is a heuristic, not a market-calendar-aware guarantee.
+
+This integration retrieves market-data bars; it does not implement a live streaming feed, submit orders, connect a trading strategy to a broker, or execute live trades. Retrieved bars are not automatically passed into the CSV-based backtester.
 
 ## Run a backtest
 
@@ -118,4 +179,14 @@ All tests use local deterministic inputs; no live data service, broker account, 
 
 GitHub Actions builds the C++ library and Python extension, runs CTest, and runs Python tests including the extension integration tests. Local commands above match the CI sequence.
 
-Live market-data infrastructure, broker integration, paper trading, production trading-risk controls, and deployment readiness are future work and are not implemented here.
+**Implemented:** historical CSV-based backtesting, the C++ order book and matching/execution engine, and read-only Alpaca US stock OHLCV retrieval through the dashboard.
+
+**Future work:**
+- Live market-data streaming and freshness monitoring.
+- Additional provider abstraction and data-source coverage.
+- Integration of external market data into backtesting through an explicit, tested workflow.
+- Broker integration and paper trading.
+- Expanded risk controls, operational monitoring, and deployment readiness.
+- Live-trading readiness only after separate testing, risk validation, and explicit broker integration.
+
+QuantForge is a research and educational project. Market-data retrieval does not establish that a strategy is profitable or safe to trade, and the project does not currently submit broker orders or execute live trades.
