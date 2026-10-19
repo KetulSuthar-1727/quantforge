@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from typing import Optional
 from urllib.error import HTTPError, URLError
@@ -146,10 +147,10 @@ class AlpacaMarketDataProvider(MarketDataProvider):
         start: Optional[str] = None,
         end: Optional[str] = None,
     ) -> pd.DataFrame:
-        if not isinstance(symbol, str) or not symbol.strip():
-            raise ValueError("symbol must be a non-empty string.")
+        if not isinstance(symbol, str) or not re.fullmatch(r"[A-Za-z0-9.-]{1,20}", symbol.strip()):
+            raise ValueError("symbol must be a valid stock ticker.")
 
-        if interval not in self.SUPPORTED_INTERVALS:
+        if not isinstance(interval, str) or interval not in self.SUPPORTED_INTERVALS:
             raise ValueError(
                 "Unsupported interval. Choose from: "
                 + ", ".join(self.SUPPORTED_INTERVALS)

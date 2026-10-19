@@ -96,3 +96,28 @@ def test_market_data_explorer_displays_provider_error():
 
     assert not app.exception
     assert any("Market data request failed" in item.value for item in app.error)
+
+
+def test_backtest_alpaca_fetch_is_only_on_load_action(monkeypatch):
+    bars = pd.DataFrame({
+        "Date": pd.date_range("2026-01-01", periods=3, freq="D", tz="UTC"),
+        "Open": [100.0] * 3, "High": [101.0] * 3, "Low": [99.0] * 3,
+        "Close": [100.0, 101.0, 102.0], "Volume": [1000] * 3,
+    })
+    with patch(
+        "engine.market_data.AlpacaMarketDataProvider.__init__",
+        return_value=None,
+    ), patch(
+        "engine.market_data.AlpacaMarketDataProvider.fetch_bars",
+        return_value=bars,
+    ) as fetch:
+        app = AppTest.from_file(str(APP_PATH)).run()
+        assert fetch.call_count == 0
+        next(item for item in app.selectbox if item.label == "Historical data source").set_value("Alpaca historical bars").run()
+        assert fetch.call_count == 0
+        next(button for button in app.button if button.label == "Load selected dataset").click().run()
+
+    assert not app.exception
+    assert fetch.call_count == 1
+    assert fetch.call_args.kwargs["symbol"] == "AAPL"
+    assert fetch.call_args.kwargs["interval"] == "1Day"

@@ -9,6 +9,7 @@ from engine.backtest import BacktestEngine
 from engine.benchmark import BuyAndHoldBenchmark, has_sufficient_benchmark_history
 from engine.costs import TransactionCostModel
 from engine.data import DataHandler
+from engine.dataset import create_dataset, fetch_alpaca_dataset, load_csv_dataset
 from engine.execution import ExecutionEngine
 from engine.metrics import PerformanceMetrics
 from engine.portfolio import Portfolio
@@ -28,7 +29,7 @@ st.caption(
 )
 
 with st.expander("Fetch intraday market data", expanded=False):
-    symbol = st.text_input("US stock symbol", value="AAPL").strip().upper()
+    symbol = st.text_input("US stock symbol", value="AAPL", key="explorer_symbol").strip().upper()
     interval = st.selectbox(
         "Bar interval",
         options=["1Min", "5Min", "15Min", "1Hour", "1Day"],
@@ -96,6 +97,43 @@ with st.expander("Fetch intraday market data", expanded=False):
                 st.error(f"Could not fetch market data: {exc}")
 
 st.sidebar.header("Backtest configuration")
+data_source = st.sidebar.selectbox("Historical data source", ["CSV file", "Alpaca historical bars"])
+if data_source == "CSV file":
+    csv_path = st.sidebar.text_input("CSV path", value="data/market_data.csv")
+    data_symbol = st.sidebar.text_input("Dataset symbol", value="AAPL").strip().upper()
+    data_interval = st.sidebar.selectbox("CSV bar timeframe", ["1Min", "5Min", "15Min", "1Hour", "1Day"], index=4)
+    start_text = end_text = ""
+else:
+    data_symbol = st.sidebar.text_input("US stock symbol", value="AAPL", key="backtest_symbol").strip().upper()
+    data_interval = st.sidebar.selectbox("Backtest bar interval", ["1Min", "5Min", "15Min", "1Hour", "1Day"], index=4)
+    start_text = st.sidebar.text_input("Start timestamp (optional, UTC/ISO-8601)", value="")
+    end_text = st.sidebar.text_input("End timestamp (optional, UTC/ISO-8601)", value="")
+    csv_path = None
+
+source_signature = (data_source, csv_path, data_symbol, data_interval, start_text.strip(), end_text.strip())
+if st.sidebar.button("Load selected dataset"):
+    try:
+        if data_source == "CSV file":
+            selected_dataset = load_csv_dataset(csv_path, symbol=data_symbol)
+        else:
+            load_dotenv(".env")
+            provider = AlpacaMarketDataProvider()
+            selected_dataset = fetch_alpaca_dataset(
+                provider, symbol=data_symbol, interval=data_interval,
+                start=start_text.strip() or None, end=end_text.strip() or None,
+            )
+        st.session_state["backtest_dataset"] = selected_dataset
+        st.session_state["backtest_dataset_signature"] = source_signature
+        st.success(f"Loaded {selected_dataset.provenance.bar_count} bars ({selected_dataset.provenance.fingerprint[:12]}…).")
+    except (MarketDataError, ValueError, OSError) as exc:
+        st.error(f"Could not load selected dataset: {exc}")
+
+selected_dataset = st.session_state.get("backtest_dataset")
+if selected_dataset is not None and st.session_state.get("backtest_dataset_signature") == source_signature:
+    with st.expander("Selected dataset diagnostics", expanded=False):
+        st.json(selected_dataset.provenance.to_dict())
+        st.dataframe(selected_dataset.data.head(20), hide_index=True, use_container_width=True)
+
 initial_capital = st.sidebar.number_input("Initial capital", min_value=1000.0, value=10000.0, step=1000.0)
 fast_window = st.sidebar.number_input("Fast moving average", min_value=1, value=3, step=1)
 slow_window = st.sidebar.number_input("Slow moving average", min_value=2, value=5, step=1)
@@ -106,7 +144,23 @@ if st.sidebar.button("Run backtest"):
         st.stop()
 
     try:
-        data = DataHandler("data/market_data.csv").load_data()
+        # CSV stays a one-click, explicit backtest path. Alpaca data must be
+        # fetched with the separate Load action and match the current controls.
+        if data_source == "CSV file":
+            if st.session_state.get("backtest_dataset_signature") == source_signature:
+                selected_dataset = st.session_state.get("backtest_dataset")
+            else:
+                selected_dataset = create_dataset(
+                    DataHandler(csv_path).load_data(), source="csv", symbol=data_symbol,
+                    timeframe=data_interval, source_reference=csv_path,
+                )
+        elif st.session_state.get("backtest_dataset_signature") == source_signature:
+            selected_dataset = st.session_state.get("backtest_dataset")
+            if selected_dataset is None:
+                raise ValueError("Load the selected Alpaca dataset before running the backtest.")
+        else:
+            raise ValueError("Dataset controls changed. Load the selected dataset before running the backtest.")
+        data = selected_dataset.data
     except (OSError, ValueError) as exc:
         st.error(f"Could not load market data: {exc}")
         st.stop()
@@ -122,9 +176,9 @@ if st.sidebar.button("Run backtest"):
         execution_engine=ExecutionEngine(portfolio, TransactionCostModel(commission_rate=0.001)),
         position_sizer=PositionSizer(base_allocation=0.20, max_allocation=0.20, target_volatility=0.20),
         volatility_model=VolatilityModel(),
-        symbol="AAPL",
+        symbol=data_symbol,
     )
-    result = engine.run()
+    result = engine.run_with_metadata(dataset_provenance=selected_dataset.provenance)
     metrics = PerformanceMetrics(initial_capital, result["portfolio_history"], result["trade_history"])
     prices = data["Close"].tolist()
     benchmark = None
@@ -147,6 +201,8 @@ if st.sidebar.button("Run backtest"):
     chart = chart.sort_values("date").set_index("date")
 
     st.success("Backtest completed.")
+    with st.expander("Run provenance and configuration", expanded=False):
+        st.json(result["run_metadata"])
     st.subheader("Portfolio performance")
     columns = st.columns(4)
     columns[0].metric("Initial capital", f"${initial_capital:,.2f}")

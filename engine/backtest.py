@@ -1,4 +1,5 @@
 from engine.order import Order
+from engine.run_metadata import build_run_metadata
 
 
 class BacktestEngine:
@@ -87,3 +88,11 @@ class BacktestEngine:
             "trade_history": self.portfolio.trade_history,
             "portfolio_history": portfolio_history,
         }
+
+    def run_with_metadata(self, dataset_provenance=None, config=None):
+        """Run locally against loaded bars and attach an inspectable run record."""
+        result = self.run()
+        result["run_metadata"] = build_run_metadata(
+            self, result, dataset_provenance=dataset_provenance, config=config
+        )
+        return result
