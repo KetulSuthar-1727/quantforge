@@ -3,6 +3,8 @@
 import pandas as pd
 import streamlit as st
 
+from dotenv import load_dotenv
+from engine.market_data import AlpacaMarketDataProvider, MarketDataError
 from engine.backtest import BacktestEngine
 from engine.benchmark import BuyAndHoldBenchmark, has_sufficient_benchmark_history
 from engine.costs import TransactionCostModel
@@ -18,6 +20,80 @@ from strategies.moving_average import MovingAverageStrategy
 st.set_page_config(page_title="QuantForge", page_icon="📈", layout="wide")
 st.title("QuantForge")
 st.caption("Historical strategy research and backtesting")
+
+st.header("US Market Data Explorer")
+st.caption(
+    "Read-only US stock market data from Alpaca. "
+    "The selected feed may not represent the entire US market."
+)
+
+with st.expander("Fetch intraday market data", expanded=False):
+    symbol = st.text_input("US stock symbol", value="AAPL").strip().upper()
+    interval = st.selectbox(
+        "Bar interval",
+        options=["1Min", "5Min", "15Min", "1Hour", "1Day"],
+        index=1,
+    )
+
+    if st.button("Fetch market data"):
+        if not symbol:
+            st.error("Enter a valid stock symbol.")
+        else:
+            try:
+                load_dotenv(".env")
+                provider = AlpacaMarketDataProvider()
+                bars = provider.fetch_bars(
+                    symbol=symbol,
+                    interval=interval,
+                )
+
+
+                latest_bar = bars["Date"].max()
+                now_utc = pd.Timestamp.now(tz="UTC")
+                age = now_utc - latest_bar
+
+                st.success(f"Received {len(bars)} bars for {symbol}.")
+
+                st.metric(
+                    "Latest bar (UTC)",
+                    latest_bar.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                )
+
+                # This is a conservative warning, not a definitive market-hours check.
+                stale_thresholds = {
+                    "1Min": pd.Timedelta(minutes=15),
+                    "5Min": pd.Timedelta(minutes=30),
+                    "15Min": pd.Timedelta(minutes=60),
+                    "1Hour": pd.Timedelta(hours=3),
+                    "1Day": pd.Timedelta(days=4),
+                }
+
+                if age > stale_thresholds[interval]:
+                    st.warning(
+                        "The newest bar is older than the expected freshness threshold. "
+                        "This may be normal outside market hours, on holidays, or when "
+                        "the selected feed has limited coverage. Check the timestamp "
+                        "before relying on this data."
+                    )
+                else:
+                    st.caption(
+                        f"Newest bar is approximately {age} old. "
+                        "Feed coverage and market hours can affect freshness."
+                    )
+
+                st.line_chart(
+                    bars.set_index("Date")[["Close"]],
+                    use_container_width=True,
+                )
+                st.dataframe(
+                    bars.tail(100),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+            except MarketDataError as exc:
+                st.error(f"Market data request failed: {exc}")
+            except (ValueError, OSError) as exc:
+                st.error(f"Could not fetch market data: {exc}")
 
 st.sidebar.header("Backtest configuration")
 initial_capital = st.sidebar.number_input("Initial capital", min_value=1000.0, value=10000.0, step=1000.0)
