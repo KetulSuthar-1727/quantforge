@@ -126,7 +126,7 @@ Requests support pagination and bounded retries for transient network failures a
 
 The default feed is `iex`. Available feed settings depend on Alpaca account access and provider support. IEX data must not be treated as consolidated coverage of every US trading venue. Data availability, permissions, market hours, holidays, and feed coverage can affect the latest timestamp. The dashboard's freshness warning is a heuristic, not a market-calendar-aware guarantee.
 
-This integration retrieves market-data bars; it does not implement a live streaming feed, submit orders, connect a trading strategy to a broker, or execute live trades. Retrieved bars are not automatically passed into the CSV-based backtester.
+This integration retrieves historical market-data bars; it does not implement a live streaming feed, submit orders, connect a trading strategy to a broker, or execute live trades. Provider bars can be loaded intentionally into the backtesting workflow described in Phase 8 below.
 
 ## Run a backtest
 
@@ -140,6 +140,43 @@ Both entry points read `data/market_data.csv`. The CSV must contain `Date`, `Ope
 Signals are calculated from completed bars. A signal from a completed bar is executed at the following bar's open, using only prices available by that decision time. The portfolio is marked at that bar's close, and a signal from the last bar is not executed without a later bar. The cost model applies slippage to execution price and commission to executed notional. The sample CLI configures both; the dashboard currently configures commission only.
 
 The benchmark buys an integer number of shares at the first input close, retains unused cash, and values the position at each input close. It uses no transaction costs and assumes buy-and-hold from the first observation. The strategy and benchmark histories use the source market dates.
+
+## Phase 8: controlled historical datasets and reproducible runs
+
+The backtest data flow is **explicit source selection → loading/fetching → shared OHLCV validation → dataset fingerprint and provenance → local backtest execution**. `DataHandler` remains the compatible CSV API; it now delegates to the same UTC-normalizing validator used by Alpaca. A loaded `HistoricalDataset` can be passed to the backtest without any network access.
+
+### Select and load a dataset
+
+The default dashboard source is `data/market_data.csv`. Choose **CSV file**, enter its path and symbol, and click **Run backtest** to preserve the existing one-action CSV workflow. CSV loads never fall back to a provider. For an explicit CSV date window, use `load_csv_dataset(path, start=..., end=...)`; both supplied boundaries are inclusive and filter the selected observations.
+
+To backtest provider data, choose **Alpaca historical bars**, enter the symbol, supported interval (`1Min`, `5Min`, `15Min`, `1Hour`, or `1Day`), and optional ISO-8601 boundaries, then click **Load selected dataset**. This is the network action; configure `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` as described above. Click **Run backtest** afterwards. If source settings have changed since loading, the dashboard requires a fresh load. Alpaca date boundaries are passed to the provider API; the provider's historical-bars range semantics apply. Daily bars represent provider daily bars and intraday timestamps are normalized to UTC. The backtest consumes the returned bars as given; it does not create bars for nights, weekends, holidays, or other gaps.
+
+Python callers can use `load_csv_dataset(...)` or `fetch_alpaca_dataset(provider, ...)` from `engine.dataset`. These return `HistoricalDataset(data, provenance)`. Data acquisition is separate from `BacktestEngine`; call `run_with_metadata(dataset_provenance=dataset.provenance)` on an engine initialized with `dataset.data` for a backward-compatible result dictionary with an additional `run_metadata` field.
+
+### Provenance and repeatability
+
+Dataset provenance records schema version, selected source, symbol, timeframe, requested and observed ranges, bar count, Alpaca feed when applicable, creation time, optional CSV path reference, and content fingerprint. Requested boundaries are what the caller entered; observed boundaries are the first and last actual bars.
+
+The SHA-256 dataset fingerprint uses canonical `Date, Open, High, Low, Close, Volume` columns, shared validation, UTC timestamps, chronological sorting, JSON serialization with fixed separators, and each numeric value's IEEE-754 hexadecimal form. It excludes fetch time, source path, and other volatile metadata. Thus row reordering has no effect, while timestamps or OHLCV values do. This is a content fingerprint, not a guarantee that a mutable CSV path will retain that content.
+
+Run metadata records a unique UUID execution ID separately from a reproducibility fingerprint of the dataset fingerprint and backtest configuration. The configuration includes strategy, position-sizer, volatility-model, and execution-engine identifiers; their scalar parameters where applicable; initial capital; cost-model settings; symbol; and the current next-bar-open/close-valuation assumptions. A caller may add JSON-compatible configuration through the `config` argument. Secrets are filtered from discovered scalar parameters and additional configuration keys. Run metadata is returned in memory; no artifact persistence is implemented.
+
+Identical canonical bars and configuration produce the same reproducibility fingerprint and, within the current Python/pandas/numerical environment, consistent calculations. The unique run ID and creation time intentionally differ. Cross-version or cross-hardware bitwise reproducibility is not promised. The dataset reference does not snapshot CSV bytes, strategy source code, dependencies, or compiler versions. Missing expected intervals are not rejected because exchange calendars and no-trade intervals are not modeled; invalid bars, duplicates, and malformed values are rejected centrally. The existing volatility model annualizes observation returns using a daily 252-period convention, so intraday data currently uses that inherited assumption and should be treated as experimental for volatility-based sizing.
+
+### Phase 8 checks
+
+Use the repository's virtual environment and existing build layout:
+
+```bash
+PYTHONPATH=build venv/bin/python -m pytest
+(cd build && ctest --output-on-failure)
+```
+
+The Python tests use local files and mocked provider responses; they do not require credentials or live market data. C++ sources and bindings are unchanged.
+
+### Phase 9 handoff
+
+Phase 9 can consume `HistoricalDataset.data` and its provenance while implementing a formal strategy configuration/validation interface and multi-symbol scanner. The current moving-average strategy remains the only strategy workflow, and data acquisition does not generate orders or trading signals by itself.
 
 ## Metrics conventions and limits
 
@@ -179,12 +216,11 @@ All tests use local deterministic inputs; no live data service, broker account, 
 
 GitHub Actions builds the C++ library and Python extension, runs CTest, and runs Python tests including the extension integration tests. Local commands above match the CI sequence.
 
-**Implemented:** historical CSV-based backtesting, the C++ order book and matching/execution engine, and read-only Alpaca US stock OHLCV retrieval through the dashboard.
+**Implemented:** historical CSV backtesting, controlled Alpaca OHLCV loading into local backtests, provenance and reproducibility metadata, and the C++ order book and matching/execution engine.
 
 **Future work:**
 - Live market-data streaming and freshness monitoring.
 - Additional provider abstraction and data-source coverage.
-- Integration of external market data into backtesting through an explicit, tested workflow.
 - Broker integration and paper trading.
 - Expanded risk controls, operational monitoring, and deployment readiness.
 - Live-trading readiness only after separate testing, risk validation, and explicit broker integration.

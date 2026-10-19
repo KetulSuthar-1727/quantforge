@@ -70,7 +70,7 @@ def validate_ohlcv_data(data: pd.DataFrame) -> pd.DataFrame:
 
     if result[NUMERIC_COLUMNS].isna().any().any():
         raise MarketDataValidationError(
-            "Missing numeric values found in market data."
+            "Missing values found in market data numeric columns."
         )
 
     numeric_values = result[NUMERIC_COLUMNS].to_numpy(dtype=float)
@@ -109,7 +109,7 @@ def validate_ohlcv_data(data: pd.DataFrame) -> pd.DataFrame:
 
     if result["Date"].duplicated().any():
         raise MarketDataValidationError(
-            "Duplicate timestamps found in market data."
+            "Duplicate dates (timestamps) found in market data."
         )
 
     return (

@@ -91,3 +91,44 @@ def test_backtest_executes_trades_and_tracks_portfolio():
     assert len(result["portfolio_history"]) == len(data)
     assert result["portfolio_history"][-1]["portfolio_value"] == result["final_value"]
     assert result["final_value"] < 10200.0
+
+
+def test_run_metadata_separates_unique_run_id_from_reproducibility_fingerprint():
+    data = pd.DataFrame({
+        "Date": pd.date_range("2026-01-01", periods=4, freq="D", tz="UTC"),
+        "Open": [100.0] * 4, "High": [100.0] * 4, "Low": [100.0] * 4,
+        "Close": [100.0] * 4, "Volume": [1000] * 4,
+    })
+    class HoldStrategy:
+        def __init__(self, window=2, api_secret="must-not-serialize"):
+            self.window = window
+            self.api_secret = api_secret
+
+        def generate_signal(self, data):
+            result = data.copy()
+            result["signal"] = "HOLD"
+            result["signal_strength"] = 0.0
+            return result
+
+    from engine.dataset import create_dataset
+
+    dataset = create_dataset(data, source="csv", symbol="TEST")
+
+    def run(window):
+        portfolio = Portfolio(10000.0)
+        engine = BacktestEngine(
+            dataset.data, HoldStrategy(window), portfolio,
+            ExecutionEngine(portfolio, TransactionCostModel()),
+            ControlledPositionSizer(), ControlledVolatilityModel(), "TEST",
+        )
+        return engine.run_with_metadata(dataset.provenance)
+
+    first, second, changed = run(2), run(2), run(3)
+    first_meta, second_meta, changed_meta = [
+        item["run_metadata"] for item in (first, second, changed)
+    ]
+    assert first_meta["run_id"] != second_meta["run_id"]
+    assert first_meta["reproducibility_fingerprint"] == second_meta["reproducibility_fingerprint"]
+    assert first_meta["reproducibility_fingerprint"] != changed_meta["reproducibility_fingerprint"]
+    assert "api_secret" not in str(first_meta)
+    assert first["final_value"] == second["final_value"]

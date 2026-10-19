@@ -119,6 +119,15 @@ def test_alpaca_rejects_empty_bars(alpaca_provider):
             alpaca_provider.fetch_bars("AAPL", "1Min")
 
 
+@pytest.mark.parametrize("payload", [{"bars": None}, {"bars": [{"t": "2026-10-15T14:30:00Z"}]}])
+def test_alpaca_rejects_null_or_incomplete_bar_payload(alpaca_provider, payload):
+    with patch(
+        "engine.market_data.alpaca.urlopen",
+        return_value=make_response(payload),
+    ), pytest.raises(MarketDataProviderError):
+        alpaca_provider.fetch_bars("AAPL", "1Min")
+
+
 def test_alpaca_rejects_malformed_response(alpaca_provider):
     with patch(
         "engine.market_data.alpaca.urlopen",
@@ -157,6 +166,11 @@ def test_alpaca_rejects_invalid_ohlcv(alpaca_provider):
 def test_alpaca_rejects_invalid_interval(alpaca_provider):
     with pytest.raises(ValueError, match="Unsupported interval"):
         alpaca_provider.fetch_bars("AAPL", "2Min")
+
+
+def test_alpaca_rejects_invalid_symbol(alpaca_provider):
+    with pytest.raises(ValueError, match="valid stock ticker"):
+        alpaca_provider.fetch_bars("../AAPL", "1Min")
 
 
 def test_alpaca_rejects_reversed_date_range(alpaca_provider):
