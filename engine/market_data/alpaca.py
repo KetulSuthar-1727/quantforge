@@ -159,6 +159,14 @@ class AlpacaMarketDataProvider(MarketDataProvider):
         start_utc = self._format_timestamp(start, "start")
         end_utc = self._format_timestamp(end, "end")
 
+        # Default to the last seven days when no date range is supplied.
+        # This also works on weekends and market holidays.
+        if start_utc is None and end_utc is None:
+            end_timestamp = pd.Timestamp.now(tz="UTC")
+            start_timestamp = end_timestamp - pd.Timedelta(days=7)
+            start_utc = start_timestamp.isoformat().replace("+00:00", "Z")
+            end_utc = end_timestamp.isoformat().replace("+00:00", "Z")
+
         if start_utc and end_utc:
             if pd.Timestamp(start_utc) > pd.Timestamp(end_utc):
                 raise ValueError("start must be earlier than or equal to end.")
@@ -190,8 +198,17 @@ class AlpacaMarketDataProvider(MarketDataProvider):
             )
             payload = self._get_json(url)
 
-            bars = payload.get("bars")
-            if not isinstance(bars, list):
+            if "bars" not in payload:
+                raise MarketDataProviderError(
+                    "Alpaca response does not contain a valid bars list."
+                )
+
+            bars = payload["bars"]
+
+            # Alpaca can return null when the requested range has no data.
+            if bars is None:
+                bars = []
+            elif not isinstance(bars, list):
                 raise MarketDataProviderError(
                     "Alpaca response does not contain a valid bars list."
                 )

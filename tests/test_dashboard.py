@@ -67,6 +67,9 @@ def test_market_data_explorer_displays_fetched_bars(monkeypatch):
     })
 
     with patch(
+        "engine.market_data.AlpacaMarketDataProvider.__init__",
+        return_value=None,
+    ), patch(
         "engine.market_data.AlpacaMarketDataProvider.fetch_bars",
         return_value=bars,
     ):
