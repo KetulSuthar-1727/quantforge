@@ -1,12 +1,36 @@
-class MovingAverageStrategy:
+from engine.strategy import Strategy, register_strategy
+
+
+@register_strategy
+class MovingAverageStrategy(Strategy):
+  strategy_id = "moving_average"
+  version = "1.0"
+  name = "Moving average"
+  description = "Compares fast and slow close-price moving averages."
+  default_parameters = {"fast_window": 3, "slow_window": 5}
 
   def __init__(
     self,
-    fast_window,
-    slow_window
+    fast_window=3,
+    slow_window=5
   ):
-    self.fast_window = fast_window
-    self.slow_window = slow_window
+    super().__init__(fast_window=fast_window, slow_window=slow_window)
+    self.fast_window = self.parameters["fast_window"]
+    self.slow_window = self.parameters["slow_window"]
+
+  @classmethod
+  def validate_parameters(cls, parameters):
+    fast, slow = parameters["fast_window"], parameters["slow_window"]
+    if isinstance(fast, bool) or not isinstance(fast, int) or fast < 1:
+      raise ValueError("fast_window must be a positive integer.")
+    if isinstance(slow, bool) or not isinstance(slow, int) or slow < 2:
+      raise ValueError("slow_window must be an integer of at least 2.")
+    if fast >= slow:
+      raise ValueError("fast_window must be smaller than slow_window.")
+
+  @property
+  def required_lookback(self):
+    return self.slow_window
 
   def generate_signal(self, data):
 

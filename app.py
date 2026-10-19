@@ -13,14 +13,54 @@ from engine.dataset import create_dataset, fetch_alpaca_dataset, load_csv_datase
 from engine.execution import ExecutionEngine
 from engine.metrics import PerformanceMetrics
 from engine.portfolio import Portfolio
+from engine.scanner import StockScanner
+from engine.strategy import available_strategies, get_strategy
 from engine.position_sizing import PositionSizer
 from engine.volatility import VolatilityModel
 from strategies.moving_average import MovingAverageStrategy
+from strategies.mean_reversion import MeanReversionStrategy
 
 
 st.set_page_config(page_title="QuantForge", page_icon="📈", layout="wide")
 st.title("QuantForge")
 st.caption("Historical strategy research and backtesting")
+
+st.header("Historical multi-stock scanner")
+strategy_options = {cls.name: cls for cls in available_strategies()}
+scan_strategy_name = st.selectbox("Scan strategy", list(strategy_options), key="scan_strategy")
+scan_class = strategy_options[scan_strategy_name]
+scan_symbols_text = st.text_input("Symbols (comma separated)", "AAPL, MSFT, NVDA", key="scan_symbols")
+scan_timeframe = st.selectbox("Scan timeframe", ["1Min", "5Min", "15Min", "1Hour", "1Day"], index=4, key="scan_timeframe")
+if scan_class.strategy_id == "moving_average":
+    scan_fast = st.number_input("Scan fast window", min_value=1, value=3, key="scan_fast")
+    scan_slow = st.number_input("Scan slow window", min_value=2, value=5, key="scan_slow")
+    scan_parameters = {"fast_window": int(scan_fast), "slow_window": int(scan_slow)}
+else:
+    scan_window = st.number_input("Scan window", min_value=2, value=20, key="scan_window")
+    scan_zscore = st.number_input("Entry z-score", min_value=0.1, value=2.0, key="scan_zscore")
+    scan_parameters = {"window": int(scan_window), "entry_zscore": float(scan_zscore)}
+scan_signature = (scan_class.strategy_id, tuple(sorted(scan_parameters.items())), scan_symbols_text, scan_timeframe)
+if st.button("Run historical scan", key="run_historical_scan"):
+    try:
+        selected_strategy = get_strategy(scan_class.strategy_id, **scan_parameters)
+        symbols = [part.strip() for part in scan_symbols_text.split(",")]
+        load_dotenv(".env")
+        provider = AlpacaMarketDataProvider()
+        scan = StockScanner(symbols, selected_strategy,
+                            lambda symbol: fetch_alpaca_dataset(provider, symbol=symbol, interval=scan_timeframe),
+                            timeframe=scan_timeframe).scan()
+        st.session_state["scan_result"] = scan.to_dict()
+        st.session_state["scan_signature"] = scan_signature
+    except (ValueError, MarketDataError) as exc:
+        st.error(f"Could not run scan: {exc}")
+stored_scan = st.session_state.get("scan_result")
+if stored_scan is not None:
+    if st.session_state.get("scan_signature") == scan_signature:
+        st.caption(f"{scan_strategy_name} parameters: {scan_parameters}. Signals are strategy opinions only; no risk approval or orders are created.")
+        st.json(stored_scan["summary"])
+        st.dataframe(pd.DataFrame(stored_scan["results"]), hide_index=True, use_container_width=True)
+    else:
+        st.info("Scan controls changed. Run the scan again to view results for this configuration.")
 
 st.header("US Market Data Explorer")
 st.caption(

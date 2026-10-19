@@ -174,9 +174,27 @@ PYTHONPATH=build venv/bin/python -m pytest
 
 The Python tests use local files and mocked provider responses; they do not require credentials or live market data. C++ sources and bindings are unchanged.
 
-### Phase 9 handoff
+## Phase 9: strategies and historical multi-stock scanning
 
-Phase 9 can consume `HistoricalDataset.data` and its provenance while implementing a formal strategy configuration/validation interface and multi-symbol scanner. The current moving-average strategy remains the only strategy workflow, and data acquisition does not generate orders or trading signals by itself.
+`engine.strategy.Strategy` defines a small contract with a stable `strategy_id`, version, name, description, explicit default parameters, validation, required lookback, and `generate_signal(data)`. `get_strategy(id, **parameters)` resolves built-in strategies; `available_strategies()` lists them. The moving-average strategy retains its `signal` and `signal_strength` output columns and BUY/SELL/HOLD rules. The complementary `MeanReversionStrategy` emits a BUY candidate below the rolling mean by the configured z-score and a SELL candidate above it. It uses completed close bars and does not forecast a next bar.
+
+```python
+from engine.scanner import StockScanner
+from engine.dataset import load_csv_dataset
+from engine.strategy import get_strategy
+
+scanner = StockScanner(
+    ["AAPL", "MSFT", "NVDA"],
+    get_strategy("moving_average", fast_window=3, slow_window=5),
+    lambda symbol: load_csv_dataset(f"data/{symbol}.csv", symbol=symbol),
+    timeframe="1Day",
+)
+report = scanner.scan().to_dict()
+```
+
+`StockUniverse` uppercases and trims symbols, rejects malformed strings, removes duplicates while preserving first-seen order, and rejects empty input. Passing a loader makes acquisition explicit and testable. A loader may return a validated `HistoricalDataset` or a DataFrame; the scanner validates bars through the shared OHLCV validator, evaluates symbols independently, and records status, signal, last completed bar timestamp, reason, strategy configuration, and dataset fingerprint. Results follow universe order. A scan is a historical evaluation of the last supplied completed bar, not streaming or live monitoring. The Streamlit **Historical multi-stock scanner** fetches Alpaca bars only after **Run historical scan** is clicked; each symbol is fetched once per click. Results become stale when strategy, parameters, universe, or timeframe changes and are then hidden pending a new scan.
+
+BUY, SELL, and HOLD are strategy opinions. They do not imply risk approval, order sizing, proposed orders, or broker execution. Backtests retain their separate sizing, risk-adjacent controls, and next-bar-open execution path. Scanner signals do not call those components. Run metadata now includes declared strategy ID, version, and parameters alongside prior provenance and fingerprints. Metadata improves inspection and input comparison but does not snapshot strategy source, dependency versions, or the original dataset bytes. The registry is intentionally local and built-in; there is no symbol discovery, asynchronous scheduling, live feed, risk approval, or order integration.
 
 ## Metrics conventions and limits
 
