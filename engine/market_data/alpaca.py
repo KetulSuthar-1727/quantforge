@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import time
@@ -15,6 +16,9 @@ from .errors import (
     MarketDataValidationError,
 )
 from .validation import validate_ohlcv_data
+from engine.monitoring import METRICS
+
+logger = logging.getLogger(__name__)
 
 
 class AlpacaMarketDataProvider(MarketDataProvider):
@@ -40,12 +44,14 @@ class AlpacaMarketDataProvider(MarketDataProvider):
         feed: str = "iex",
         timeout: int = 15,
         max_pages: int = 20,
+        metrics=None,
     ):
         self.api_key = api_key or os.getenv("ALPACA_API_KEY")
         self.secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
         self.feed = feed
         self.timeout = timeout
         self.max_pages = max_pages
+        self.metrics = metrics or METRICS
 
         if not self.api_key or not self.secret_key:
             raise MarketDataProviderError(
@@ -140,7 +146,27 @@ class AlpacaMarketDataProvider(MarketDataProvider):
             "Unable to reach Alpaca market data service."
         )
 
-    def fetch_bars(
+    def fetch_bars(self, symbol, interval, start=None, end=None):
+        began = time.monotonic()
+        safe_symbol = symbol.strip().upper() if isinstance(symbol, str) else "unknown"
+        try:
+            bars = self._fetch_bars(symbol, interval, start, end)
+        except Exception as exc:
+            duration = max(0.0, time.monotonic() - began)
+            self.metrics.record_data_fetch("failed", duration, symbol=safe_symbol)
+            logger.warning("market_data_fetch_failed", extra={"component": "market_data", "symbol": safe_symbol,
+                                                               "interval": interval, "duration_seconds": duration,
+                                                               "error_category": type(exc).__name__})
+            raise
+        duration = max(0.0, time.monotonic() - began)
+        latest = bars["Date"].max()
+        self.metrics.record_data_fetch("success", duration, symbol=safe_symbol, timestamp=latest)
+        logger.info("market_data_fetch_succeeded", extra={"component": "market_data", "symbol": safe_symbol,
+                                                          "interval": interval, "duration_seconds": duration,
+                                                          "bar_count": len(bars), "latest_timestamp": latest.isoformat()})
+        return bars
+
+    def _fetch_bars(
         self,
         symbol: str,
         interval: str,

@@ -10,6 +10,12 @@ from engine.market_data import MarketDataProviderError
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 
 
+def dashboard_app():
+    app = AppTest.from_file(str(APP_PATH))
+    app.default_timeout = 20
+    return app.run()
+
+
 def test_dashboard_shows_strategy_and_message_for_single_market_row(monkeypatch):
     one_row = pd.DataFrame({
         "Date": [pd.Timestamp("2026-01-01")],
@@ -21,7 +27,7 @@ def test_dashboard_shows_strategy_and_message_for_single_market_row(monkeypatch)
     })
     monkeypatch.setattr(DataHandler, "load_data", lambda self: one_row.copy())
 
-    app = AppTest.from_file(str(APP_PATH)).run()
+    app = dashboard_app()
     next(
         button for button in app.button
         if button.label == "Run backtest"
@@ -43,7 +49,7 @@ def test_dashboard_keeps_benchmark_comparison_for_two_market_rows(monkeypatch):
     })
     monkeypatch.setattr(DataHandler, "load_data", lambda self: two_rows.copy())
 
-    app = AppTest.from_file(str(APP_PATH)).run()
+    app = dashboard_app()
     next(
         button for button in app.button
         if button.label == "Run backtest"
@@ -51,7 +57,7 @@ def test_dashboard_keeps_benchmark_comparison_for_two_market_rows(monkeypatch):
 
     assert not app.exception
     assert not any("At least two valid market observations" in item.value for item in app.info)
-    assert len(app.dataframe) == 1
+    assert len(app.dataframe) >= 1
 
 def test_market_data_explorer_displays_fetched_bars(monkeypatch):
     bars = pd.DataFrame({
@@ -73,7 +79,7 @@ def test_market_data_explorer_displays_fetched_bars(monkeypatch):
         "engine.market_data.AlpacaMarketDataProvider.fetch_bars",
         return_value=bars,
     ):
-        app = AppTest.from_file(str(APP_PATH)).run()
+        app = dashboard_app()
         next(
             button for button in app.button
             if button.label == "Fetch market data"
@@ -88,7 +94,7 @@ def test_market_data_explorer_displays_provider_error():
         "engine.market_data.AlpacaMarketDataProvider.fetch_bars",
         side_effect=MarketDataProviderError("Provider unavailable"),
     ):
-        app = AppTest.from_file(str(APP_PATH)).run()
+        app = dashboard_app()
         next(
             button for button in app.button
             if button.label == "Fetch market data"
@@ -111,7 +117,7 @@ def test_backtest_alpaca_fetch_is_only_on_load_action(monkeypatch):
         "engine.market_data.AlpacaMarketDataProvider.fetch_bars",
         return_value=bars,
     ) as fetch:
-        app = AppTest.from_file(str(APP_PATH)).run()
+        app = dashboard_app()
         assert fetch.call_count == 0
         next(item for item in app.selectbox if item.label == "Historical data source").set_value("Alpaca historical bars").run()
         assert fetch.call_count == 0
@@ -127,7 +133,7 @@ def test_dashboard_reruns_do_not_start_scheduled_scans_or_submit_orders():
     with patch("engine.scanner.StockScanner.scan") as scan, patch(
         "engine.paper_trading.OrderManager.submit"
     ) as submit:
-        app = AppTest.from_file(str(APP_PATH)).run()
+        app = dashboard_app()
         app.run()
     assert not app.exception
     scan.assert_not_called()

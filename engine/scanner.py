@@ -1,10 +1,17 @@
 """Offline-capable, per-symbol historical strategy scanner."""
 from dataclasses import dataclass
+import logging
+import time
+from uuid import uuid4
 
 from engine.dataset import HistoricalDataset, dataset_fingerprint
 from engine.market_data import validate_ohlcv_data
 from engine.strategy import Strategy
 from engine.universe import StockUniverse
+from engine.monitoring import METRICS
+from engine.market_data.errors import MarketDataError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -18,7 +25,7 @@ class ScanResult:
 
 class StockScanner:
     """Loader is called once per symbol and must deliberately acquire/load bars."""
-    def __init__(self, universe, strategy, data_loader, *, timeframe="1Day"):
+    def __init__(self, universe, strategy, data_loader, *, timeframe="1Day", metrics=None):
         self.universe = universe if isinstance(universe, StockUniverse) else StockUniverse(universe)
         if not isinstance(strategy, Strategy):
             raise TypeError("strategy must implement the Strategy contract.")
@@ -27,8 +34,13 @@ class StockScanner:
         self.strategy = strategy
         self.data_loader = data_loader
         self.timeframe = timeframe
+        self.metrics = metrics or METRICS
 
     def scan(self):
+        run_id = str(uuid4())
+        started = time.monotonic()
+        logger.info("scan_started", extra={"component": "scanner", "run_id": run_id,
+                                           "symbols": len(self.universe)})
         results = []
         for symbol in self.universe:
             base = {"symbol": symbol, "strategy_id": self.strategy.strategy_id,
@@ -55,9 +67,20 @@ class StockScanner:
                                 "confidence": row["confidence"], "bar_count": len(data),
                                 "dataset_fingerprint": fingerprint})
             except Exception as exc:
+                if not isinstance(exc, MarketDataError):
+                    logger.warning("symbol_scan_failed", extra={"component": "scanner", "run_id": run_id,
+                                                                 "symbol": symbol, "error_category": type(exc).__name__})
                 results.append({**base, "status": "error", "signal": None,
                                 "signal_timestamp": None, "data_timestamp": None,
-                                "reason": f"{type(exc).__name__}: {exc}"})
+                                "reason": f"{type(exc).__name__}: symbol evaluation failed"})
         counts = {status: sum(row["status"] == status for row in results)
                   for status in ("evaluated", "insufficient_data", "error")}
+        duration = max(0.0, time.monotonic() - started)
+        outcome = "failed" if counts["error"] == len(results) else "partial" if counts["error"] else "success"
+        self.metrics.record_scan("success" if outcome == "success" else "failed", duration,
+                                 error=f"{counts['error']} symbol error(s)" if counts["error"] else None,
+                                 run_id=run_id)
+        logger.info("scan_completed", extra={"component": "scanner", "run_id": run_id,
+                                             "duration_seconds": duration, "outcome": outcome,
+                                             "symbols_scanned": len(results), "symbol_errors": counts["error"]})
         return ScanResult({"symbols_scanned": len(results), **counts}, tuple(results))

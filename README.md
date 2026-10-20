@@ -300,3 +300,24 @@ PYTHONPATH=build venv/bin/python -m pytest
 ```
 
 The scheduler tests include integration against the real NYSE calendar package for a regular session, Christmas closure, the March 2026 DST shift, and open/close boundaries. They also verify that a calendar import failure blocks scans. Keep this dependency pin intact on Python 3.8; upgrade the Python runtime only as a separate planned change with a full dependency and C++ extension rebuild.
+
+## Phase 12: monitoring and reliability
+
+The Python application uses standard-library logging. The Streamlit app configures console output with timestamps, level, logger name, and event name. Set `QUANTFORGE_LOG_LEVEL` to a standard level such as `DEBUG`, `INFO`, `WARNING`, or `ERROR`; the default is `INFO`. Events include startup, scan start/completion and isolated symbol failures, Alpaca fetch outcome and duration, scheduler start/stop/blocking, risk rejection, and scheduler persistence/recovery failures. Logs include operational identifiers and error categories, not provider credentials or account details. Detailed diagnostics go to the application console; the dashboard shows short summaries.
+
+The dashboard's Monitoring and diagnostics section is observational. It reports runtime, the calendar dependency, most recent in-process data-fetch outcome and bar age, process-local scan counters, and explicitly unavailable integrations. A configured credential pair is not evidence of provider connectivity. The scheduler is opt-in and is not started by the dashboard, so its status is stopped there. The market calendar is reported unhealthy when its required package cannot be imported; an actual session lookup failure blocks the scheduler. The C++ engine is not required for the active dashboard scanning workflow. Broker status remains unavailable because there is no concrete broker adapter.
+
+Health states are `healthy` (observed required checks pass), `degraded` (a noncritical integration has failed or has not yet been exercised), `blocked` (a safety prerequisite prevents work), `unhealthy` (a required dependency or configured persistence location is unavailable), `stopped` (the optional scheduler is inactive), and `unavailable` (no genuine check or integration exists). Market-data “healthy” means only that the last fetch succeeded; it does not assert feed completeness or market-hours freshness.
+
+Scan and market-data counters, last durations/outcomes, recent scan errors, and latest bar age are process-local and reset on Python process restart. “Total scans” counts a scan attempt; a scan with any symbol-level error contributes to failed scans, while its outcome is separately described as partial in the scan summary. Consecutive failures reset after a fully successful scan. Data fetch failures count provider and validation failures. Durations measure local wall-clock execution. Scheduler run history and last outcome are persisted only if an embedding application explicitly supplies `SchedulerStore`; its database contains scan summaries, not broker/trading state. No metrics endpoint is exposed.
+
+For diagnosis, check console logs for the component and run ID, then inspect the dashboard's latest outcome and recent symbol error categories. Calendar errors block scheduled scans until the calendar lookup succeeds; provider credentials should be checked locally without printing them. The Alpaca provider applies bounded retries only to transient network errors and retryable HTTP responses. Ambiguous paper-order submissions are not retried; current code has only an adapter protocol and offline fake for tests, and automated orders remain disabled in the dashboard.
+
+Monitoring tests use deterministic local data and mocks. Run them with the normal suite:
+
+```bash
+PYTHONPATH=build venv/bin/python -m pytest
+(cd build && ctest --output-on-failure)
+```
+
+These commands test Python behavior and the locally built C++ suite; mocked provider checks do not prove live service connectivity. No external monitoring stack, broker integration, or network health endpoint is provided.

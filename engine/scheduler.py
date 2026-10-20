@@ -96,6 +96,7 @@ class ScanScheduler:
                 self._status = "error"
                 self._blocked_reason = "scheduler history recovery failed"
                 self._last_error = self._blocked_reason
+                logger.exception("scheduler_history_recovery_failed", extra={"component": "scheduler"})
 
     def status(self):
         with self._state_lock:
@@ -130,6 +131,9 @@ class ScanScheduler:
                 with self._state_lock:
                     self._status = "blocked" if self._blocked_reason else ("running" if self._running else "stopped")
                     self._next_run = current + timedelta(seconds=self.config.interval_seconds)
+                    reason = self._blocked_reason
+                if reason:
+                    logger.error("scheduler_blocked", extra={"component": "scheduler", "reason": reason})
                 return None
         if not self._lock.acquire(blocking=False):
             return None
@@ -174,6 +178,7 @@ class ScanScheduler:
         except Exception:
             outcome = "error"
             error = "scheduler run could not be persisted"
+            logger.exception("scheduler_persistence_failed", extra={"component": "scheduler"})
             with self._state_lock:
                 self._status = "error"
                 self._blocked_reason = error
@@ -198,6 +203,7 @@ class ScanScheduler:
             self._status = "running"
             self._thread = threading.Thread(target=self._loop, name="quantforge-scan-scheduler", daemon=False)
             self._thread.start()
+        logger.info("scheduler_started", extra={"component": "scheduler", "interval_seconds": self.config.interval_seconds})
 
     def _loop(self):
         while not self._stop.is_set():
@@ -221,4 +227,5 @@ class ScanScheduler:
         with self._state_lock:
             if self._status != "error":
                 self._status = "stopped"
+        logger.info("scheduler_stopped", extra={"component": "scheduler"})
         # Open orders are not managed or cancelled by scheduler shutdown.
