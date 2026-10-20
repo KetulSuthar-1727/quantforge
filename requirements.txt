@@ -6,4 +6,4 @@ pyarrow>=12,<18
 pybind11>=2.10,<3
 pytest>=7,<9
 python-dotenv>=1.0,<2
-pandas-market-calendars>=4.4,<6
+pandas-market-calendars==4.4.2

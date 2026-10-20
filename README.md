@@ -52,7 +52,7 @@ build/                  Generated CMake build and Python extension (local)
 
 ## Requirements and setup
 
-Python 3.8 or newer is supported by the source and dependency ranges. Install a C++17 compiler, CMake 3.16 or newer, and Python development headers. On Ubuntu, `build-essential` and `python3-dev` provide the compiler and headers.
+Python 3.8 or newer is supported by the source and dependency ranges. The scheduled US market-session implementation is pinned to `pandas-market-calendars==4.4.2`, which is compatible with Python 3.8. Newer 5.x releases use syntax unavailable in Python 3.8 and are not allowed by the project requirements. Install a C++17 compiler, CMake 3.16 or newer, and Python development headers. On Ubuntu, `build-essential` and `python3-dev` provide the compiler and headers.
 
 ```bash
 python3 -m venv .venv
@@ -61,7 +61,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-The requirements include NumPy, pandas, Matplotlib, Streamlit, pybind11, and pytest. The CMake build requires the pybind11 CMake package provided by the Python installation above.
+The requirements include NumPy, pandas, Matplotlib, Streamlit, pybind11, pytest, and the pinned NYSE calendar dependency. The CMake build requires the pybind11 CMake package provided by the Python installation above.
 
 ## Build the C++ engine and Python extension
 
@@ -278,7 +278,7 @@ Implementation plan based on the repository audit: (1) schedule the existing `St
 
 `engine.scheduler.ScanScheduler` is an opt-in service. It is never started by importing QuantForge or rerunning the Streamlit dashboard. `run_due(now)` supports deterministic clock-driven execution; `start()` launches a background thread and `stop()` waits for an active scan to finish. One scan may run at a time. Missed intervals are skipped (one current scan at most), and scan exceptions receive the configured bounded retry count. Each run records start/end, outcome, duration, sanitized error summary, and scanner summary in `SchedulerStore` SQLite. Existing per-symbol scanner errors remain per-symbol results and are visible in that run summary.
 
-The `USMarketCalendar` uses the NYSE schedule from `pandas-market-calendars`. Its schedule includes regular-session holidays, early closes, and timezone-aware market boundaries. The scheduler only permits 09:30 through the actual close in `America/New_York`, represented by calendar-produced UTC instants; open is inclusive and close is exclusive. Pre-market and after-hours are disabled and currently unsupported. A missing calendar dependency, invalid response, or lookup exception fails closed. An exchange calendar only describes scheduled exchange hours. It does not establish that a broker is accepting an order, that a quote is fresh, or that a particular security is tradable.
+The `USMarketCalendar` uses the NYSE schedule from `pandas-market-calendars==4.4.2`. This release supports Python 3.8; the broad 4.x-to-5.x requirement previously allowed 5.2.4 to install, whose PEP 604 annotations fail to import on Python 3.8. Reinstall requirements after updating an existing environment so the calendar library is brought back to the pinned version. Its schedule includes regular-session holidays, early closes, and timezone-aware market boundaries. The scheduler only permits the actual regular session in `America/New_York`, represented by calendar-produced UTC instants; open is inclusive and close is exclusive. Pre-market and after-hours are disabled and unsupported. A missing calendar dependency, invalid response, or lookup/import exception fails closed. An exchange calendar only describes scheduled exchange hours. It does not establish that a broker is accepting an order, that a quote is fresh, or that a particular security is tradable.
 
 Start the read-only scheduled scanner from the repository root after installing requirements and setting the market-data credentials described above:
 
@@ -298,3 +298,5 @@ Phase 11 checks:
 PYTHONPATH=build venv/bin/python -m pytest
 (cd build && ctest --output-on-failure)
 ```
+
+The scheduler tests include integration against the real NYSE calendar package for a regular session, Christmas closure, the March 2026 DST shift, and open/close boundaries. They also verify that a calendar import failure blocks scans. Keep this dependency pin intact on Python 3.8; upgrade the Python runtime only as a separate planned change with a full dependency and C++ extension rebuild.
