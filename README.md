@@ -236,6 +236,33 @@ GitHub Actions builds the C++ library and Python extension, runs CTest, and runs
 
 **Implemented:** historical CSV backtesting, controlled Alpaca OHLCV loading into local backtests, provenance and reproducibility metadata, and the C++ order book and matching/execution engine.
 
+## Phase 10: paper order workflow (adapter contract only)
+
+`engine.paper_trading` adds validated order requests, explicit lifecycle states, inspectable `RiskDecision`s, a kill switch, a SQLite order/fill ledger, an order manager, and a `PaperBroker` protocol. The existing Alpaca integration is market-data only. No trading provider was selected or account configured, so there is deliberately no concrete network broker adapter and no broker connectivity was verified. `FakePaperBroker` is an offline contract fixture: it accepts orders but never fabricates fills. It cannot be used to represent actual fills or account performance.
+
+The broker contract requires `verify_paper()` to succeed before any submission and exposes account state, submission, and lookup by client order ID. A future concrete adapter must validate its provider's paper endpoint and account environment on each startup and reject a live URL/configuration. There are no broker credentials or new environment variables for this implementation. Existing `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are read-only market-data credentials and must not be interpreted as trading credentials.
+
+Example offline setup:
+
+```python
+from decimal import Decimal
+from engine.paper_trading import (
+    FakePaperBroker, OrderManager, OrderRequest, OrderStore, RiskLimits,
+    RiskManager, Side,
+)
+
+store = OrderStore("var/paper-orders.sqlite3")
+broker = FakePaperBroker()  # test/demo only; no external connectivity
+risk = RiskManager(RiskLimits(100, Decimal("20000"), 200, 5), kill_switch=True)
+manager = OrderManager(store, broker, risk)
+```
+
+The caller must explicitly set the kill-switch state when constructing a `RiskManager`; no default is provided. Keep it enabled until a real adapter, deployment configuration, account verification, and operator controls are deliberately implemented. The database must be available before a request can be accepted. SQLite enforces unique client order IDs and unique fill IDs, writes local status/fill changes transactionally, and retains orders across process restarts. The caller supplies a stable client order ID when retrying the same logical request. Existing submitted orders are reused; pending/unknown orders are looked up by client ID and never blindly resubmitted. If the lookup finds nothing, the record stays unknown for operator reconciliation.
+
+Lifecycle states are `pending_submission`, `submitted`, `partially_filled`, `filled`, `rejected`, `cancelled`, and `unknown_reconciliation_required`. Invalid transitions and overfills are rejected. A confirmed fill event is deduplicated by its broker event ID; cumulative quantity and weighted average price use only those events. The contract currently omits cancellation because no provider semantics are available. Positions are net quantities derived from confirmed fills; cash, buying power, fees, realized/unrealized P&L and broker-position reconciliation are not fabricated or implemented. Risk enforces account paper/active status, available buying power, fresh reference price, per-order quantity/notional, maximum net quantity, open-order count, short-sale setting, and kill switch. It cannot enforce portfolio-wide gross exposure because complete marked positions/account valuation are unavailable. Pending order quantities count toward net-position checks.
+
+The dashboard remains a research/backtest/scanner interface. It does not submit orders, refresh a trading account, or display simulated executions as fills. Adding a manual action awaits a concrete broker adapter and safe account setup. Python tests for this subsystem run with `python -m pytest tests/test_paper_trading.py` and use only the local fake broker. Passing software tests does not demonstrate strategy profitability or establish that live trading is safe. Any future live-trading consideration requires a separate design, security review, broker-specific reconciliation work, and explicit authorization; this implementation contains no live-trading switch or endpoint.
+
 **Future work:**
 - Live market-data streaming and freshness monitoring.
 - Additional provider abstraction and data-source coverage.
