@@ -1,14 +1,24 @@
 from datetime import datetime, timezone
+import builtins
 import threading
 import time
+from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from engine.scheduler import ScanScheduler, SchedulerConfig, SchedulerStore
 from engine.us_market_calendar import USMarketCalendar
 
 
 UTC = timezone.utc
+
+
+def test_extended_sessions_remain_disabled():
+    with pytest.raises(ValueError, match="Extended sessions are not supported"):
+        SchedulerConfig(allow_pre_market=True)
+    with pytest.raises(ValueError, match="Extended sessions are not supported"):
+        SchedulerConfig(allow_after_hours=True)
 
 
 class Calendar:
@@ -59,6 +69,39 @@ def test_calendar_dst_and_session_boundaries():
     assert winter.is_open(datetime(2026, 1, 5, 14, 30, tzinfo=UTC))
 
 
+def test_real_nyse_calendar_regular_holiday_dst_and_boundaries():
+    """Integration against the pinned pandas-market-calendars implementation."""
+    calendar = USMarketCalendar()
+
+    # Tuesday regular session (winter): 09:30–16:00 America/New_York.
+    regular = datetime(2026, 1, 6, 15, 0, tzinfo=UTC)
+    assert calendar.is_open(regular)
+    assert calendar.session(regular) == (
+        datetime(2026, 1, 6, 14, 30, tzinfo=UTC),
+        datetime(2026, 1, 6, 21, 0, tzinfo=UTC),
+    )
+
+    # Christmas is a NYSE holiday.
+    holiday = datetime(2026, 12, 25, 16, 0, tzinfo=UTC)
+    assert calendar.session(holiday) is None
+    assert not calendar.is_open(holiday)
+
+    # DST begins Sunday March 8, 2026: Monday's UTC session shifts one hour.
+    before_dst = datetime(2026, 3, 6, 14, 30, tzinfo=UTC)
+    after_dst = datetime(2026, 3, 9, 13, 30, tzinfo=UTC)
+    assert calendar.session(before_dst)[0] == before_dst
+    assert calendar.session(after_dst)[0] == after_dst
+    assert calendar.is_open(before_dst) and calendar.is_open(after_dst)
+
+    # Summer session boundaries: open is inclusive, close is exclusive.
+    open_boundary = datetime(2026, 7, 1, 13, 30, tzinfo=UTC)
+    close_boundary = datetime(2026, 7, 1, 20, 0, tzinfo=UTC)
+    assert not calendar.is_open(datetime(2026, 7, 1, 13, 29, 59, tzinfo=UTC))
+    assert calendar.is_open(open_boundary)
+    assert calendar.is_open(datetime(2026, 7, 1, 19, 59, 59, tzinfo=UTC))
+    assert not calendar.is_open(close_boundary)
+
+
 def test_holiday_and_failed_calendar_fail_closed():
     scanner = Scanner()
     closed = USMarketCalendar(Calendar())
@@ -69,6 +112,24 @@ def test_holiday_and_failed_calendar_fail_closed():
     failed.run_due(datetime(2026, 10, 20, 15, tzinfo=UTC))
     assert scanner.calls == 0
     assert failed.status()["safety_block_reason"] == "US exchange session lookup failed"
+
+
+def test_calendar_import_failure_blocks_scan():
+    scanner = Scanner()
+    scheduler = ScanScheduler(scanner)
+    original_import = builtins.__import__
+
+    def fail_calendar_import(name, *args, **kwargs):
+        if name == "pandas_market_calendars":
+            raise ImportError("calendar package unavailable")
+        return original_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=fail_calendar_import):
+        scheduler.run_due(datetime(2026, 1, 6, 15, 0, tzinfo=UTC))
+
+    assert scanner.calls == 0
+    assert scheduler.status()["state"] == "blocked"
+    assert scheduler.status()["safety_block_reason"] == "US exchange session lookup failed"
 
 
 def test_overlapping_execution_is_skipped():
