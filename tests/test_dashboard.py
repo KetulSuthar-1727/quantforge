@@ -121,3 +121,14 @@ def test_backtest_alpaca_fetch_is_only_on_load_action(monkeypatch):
     assert fetch.call_count == 1
     assert fetch.call_args.kwargs["symbol"] == "AAPL"
     assert fetch.call_args.kwargs["interval"] == "1Day"
+
+
+def test_dashboard_reruns_do_not_start_scheduled_scans_or_submit_orders():
+    with patch("engine.scanner.StockScanner.scan") as scan, patch(
+        "engine.paper_trading.OrderManager.submit"
+    ) as submit:
+        app = AppTest.from_file(str(APP_PATH)).run()
+        app.run()
+    assert not app.exception
+    scan.assert_not_called()
+    submit.assert_not_called()

@@ -271,3 +271,30 @@ The dashboard remains a research/backtest/scanner interface. It does not submit 
 - Live-trading readiness only after separate testing, risk validation, and explicit broker integration.
 
 QuantForge is a research and educational project. Market-data retrieval does not establish that a strategy is profitable or safe to trade, and the project does not currently submit broker orders or execute live trades.
+
+## Phase 11: scheduled scanner operation
+
+Implementation plan based on the repository audit: (1) schedule the existing `StockScanner` without changing its data or strategy contract; (2) check an exchange calendar before scans; (3) make scheduling explicitly startable/stoppable and testable with supplied datetimes; (4) persist run history and expose operational state; and (5) leave scheduled order submission disabled because this repository has no concrete paper broker or broker-state reconciliation implementation.
+
+`engine.scheduler.ScanScheduler` is an opt-in service. It is never started by importing QuantForge or rerunning the Streamlit dashboard. `run_due(now)` supports deterministic clock-driven execution; `start()` launches a background thread and `stop()` waits for an active scan to finish. One scan may run at a time. Missed intervals are skipped (one current scan at most), and scan exceptions receive the configured bounded retry count. Each run records start/end, outcome, duration, sanitized error summary, and scanner summary in `SchedulerStore` SQLite. Existing per-symbol scanner errors remain per-symbol results and are visible in that run summary.
+
+The `USMarketCalendar` uses the NYSE schedule from `pandas-market-calendars`. Its schedule includes regular-session holidays, early closes, and timezone-aware market boundaries. The scheduler only permits 09:30 through the actual close in `America/New_York`, represented by calendar-produced UTC instants; open is inclusive and close is exclusive. Pre-market and after-hours are disabled and currently unsupported. A missing calendar dependency, invalid response, or lookup exception fails closed. An exchange calendar only describes scheduled exchange hours. It does not establish that a broker is accepting an order, that a quote is fresh, or that a particular security is tradable.
+
+Start the read-only scheduled scanner from the repository root after installing requirements and setting the market-data credentials described above:
+
+```bash
+PYTHONPATH=. venv/bin/python -m engine.scheduler_cli
+```
+
+Optional environment variables are `QF_SCAN_SYMBOLS` (default `AAPL,MSFT,NVDA`), `QF_SCAN_STRATEGY` (`moving_average` by default, or `mean_reversion`), `QF_SCAN_TIMEFRAME` (default `1Day`), `QF_SCAN_INTERVAL_SECONDS` (default `300`), `QF_SCAN_FAST_WINDOW` and `QF_SCAN_SLOW_WINDOW` for moving average, `QF_SCAN_WINDOW` and `QF_SCAN_ENTRY_ZSCORE` for mean reversion, and `QF_SCHEDULER_DB` (default `var/scheduler.sqlite3`). Invalid strategy parameters or configuration prevent startup. Use Ctrl-C or SIGTERM for graceful shutdown. Shutdown waits for the running scan and does not cancel broker orders.
+
+`status()` reports stopped/running/blocked/error state, next planned attempt, last run/outcome, consecutive failures, and a safety-block reason. Only run history is recoverable: startup reads the last record for display. There is no persisted running-job lease or process supervisor, so process-crash recovery does not resume a scan automatically. A scheduling/history persistence failure enters an error state. A session lookup failure blocks scans. The dashboard has no scheduler controls and reruns do not trigger scans or orders; its existing scan remains an explicit button action.
+
+**Automated paper trading is disabled.** The Phase 10 code in this repository provides a broker protocol and `FakePaperBroker`, plus local order/risk persistence, but no concrete external paper adapter. It cannot reconcile broker positions or verify an account on startup. Therefore Phase 11 does not convert scanner signals into orders, does not resume order submission after restart, and does not claim broker connectivity, stale-data checks, account recovery, or broker-confirmed fills. Repeated scanner output consequently cannot create duplicate orders. Existing `OrderManager` client-order-ID idempotency and unknown-outcome reconciliation behavior still apply to explicit offline/test callers. A real paper adapter and a tested reconciliation gate are prerequisites for enabling any automated order path.
+
+Phase 11 checks:
+
+```bash
+PYTHONPATH=build venv/bin/python -m pytest
+(cd build && ctest --output-on-failure)
+```
