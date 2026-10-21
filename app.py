@@ -258,7 +258,10 @@ if st.sidebar.button("Run backtest"):
         symbol=data_symbol,
     )
     result = engine.run_with_metadata(dataset_provenance=selected_dataset.provenance)
-    metrics = PerformanceMetrics(initial_capital, result["portfolio_history"], result["trade_history"])
+    metrics = PerformanceMetrics(
+        initial_capital, result["portfolio_history"], result["trade_history"],
+        timeframe=selected_dataset.provenance.timeframe,
+    )
     prices = data["Close"].tolist()
     benchmark = None
     if has_sufficient_benchmark_history(prices):
@@ -286,13 +289,13 @@ if st.sidebar.button("Run backtest"):
     columns = st.columns(4)
     columns[0].metric("Initial capital", f"${initial_capital:,.2f}")
     columns[1].metric("Final value", f"${result['final_value']:,.2f}")
-    columns[2].metric("Total return", f"{metrics.total_return():.2%}")
-    columns[3].metric("Annualized return", f"{metrics.annualized_return():.2%}")
+    columns[2].metric("Total return", f"{metrics.total_return():.2%}" if metrics.total_return() is not None else "Unavailable")
+    columns[3].metric("Annualized return", f"{metrics.annualized_return():.2%}" if metrics.annualized_return() is not None else "Unavailable")
     columns = st.columns(4)
-    columns[0].metric("Annualized volatility", f"{metrics.annualized_volatility():.2%}")
-    columns[1].metric("Sharpe ratio", f"{metrics.sharpe_ratio():.2f}")
-    columns[2].metric("Sortino ratio", f"{metrics.sortino_ratio():.2f}")
-    columns[3].metric("Maximum drawdown", f"{metrics.maximum_drawdown():.2%}")
+    columns[0].metric("Annualized volatility", f"{metrics.annualized_volatility():.2%}" if metrics.annualized_volatility() is not None else "Unavailable")
+    columns[1].metric("Sharpe ratio", f"{metrics.sharpe_ratio():.2f}" if metrics.sharpe_ratio() is not None else "Unavailable")
+    columns[2].metric("Sortino ratio", f"{metrics.sortino_ratio():.2f}" if metrics.sortino_ratio() is not None else "Unavailable")
+    columns[3].metric("Maximum drawdown", f"{metrics.maximum_drawdown():.2%}" if metrics.maximum_drawdown() is not None else "Unavailable")
 
     st.subheader("Strategy vs buy and hold")
     if benchmark is None:
@@ -312,15 +315,24 @@ if st.sidebar.button("Run backtest"):
     st.subheader("Strategy drawdown")
     drawdowns = pd.DataFrame({"Drawdown": metrics.drawdowns()}, index=pd.to_datetime([item["date"] for item in result["portfolio_history"]]))
     st.line_chart(drawdowns, use_container_width=True)
+    duration = metrics.drawdown_duration()
+    if duration is not None:
+        st.caption(f"Maximum drawdown duration: {duration['max_observations']} observations ({duration['max_days']:.0f} days); current underwater duration: {duration['current_observations']} observations ({duration['current_days']:.0f} days).")
+    cumulative = metrics.cumulative_returns()
+    if cumulative is not None:
+        st.subheader("Cumulative return")
+        st.line_chart(pd.DataFrame({"Cumulative return": cumulative}, index=pd.to_datetime([item["date"] for item in result["portfolio_history"]])), use_container_width=True)
 
     pnl = metrics.trade_pnl()
     profit_factor = metrics.profit_factor()
     columns = st.columns(5)
     columns[0].metric("Closed FIFO matches", str(len(pnl)))
-    columns[1].metric("Win rate", f"{metrics.win_rate():.1%}")
-    columns[2].metric("Average win", f"${metrics.average_win():,.2f}")
-    columns[3].metric("Average loss", f"${metrics.average_loss():,.2f}")
-    columns[4].metric("Profit factor", "∞ (no losses)" if profit_factor == float("inf") else f"{profit_factor:.2f}")
+    columns[1].metric("Win rate", f"{metrics.win_rate():.1%}" if metrics.win_rate() is not None else "Unavailable")
+    columns[2].metric("Average win", f"${metrics.average_win():,.2f}" if metrics.average_win() is not None else "Unavailable")
+    columns[3].metric("Average loss", f"${metrics.average_loss():,.2f}" if metrics.average_loss() is not None else "Unavailable")
+    columns[4].metric("Profit factor", "Unavailable" if profit_factor is None else ("∞ (no losses)" if profit_factor == float("inf") else f"{profit_factor:.2f}"))
+    st.caption(f"Recorded trades: {metrics.trade_count()}; recorded transaction costs/fees: ${metrics.transaction_costs():,.2f}; slippage cost: unavailable (reference prices are not stored); turnover: {metrics.turnover():.2f}x" if metrics.turnover() is not None else f"Recorded trades: {metrics.trade_count()}; recorded transaction costs/fees: ${metrics.transaction_costs():,.2f}; slippage cost and turnover: unavailable.")
+    st.caption("Exposure is unavailable because this backtest records portfolio values but not per-bar positions. Results are historical backtests; they do not establish profitability, remove lookahead or survivorship bias, or represent broker-confirmed paper trading.")
 
     st.subheader("Execution history")
     if result["trade_history"]:
