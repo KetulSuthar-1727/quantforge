@@ -2,9 +2,12 @@
 
 import pandas as pd
 import streamlit as st
+import logging
+import os
 
 from dotenv import load_dotenv
 from engine.market_data import AlpacaMarketDataProvider, MarketDataError
+from engine.monitoring import METRICS, configure_logging, health_report
 from engine.backtest import BacktestEngine
 from engine.benchmark import BuyAndHoldBenchmark, has_sufficient_benchmark_history
 from engine.costs import TransactionCostModel
@@ -22,6 +25,11 @@ from strategies.mean_reversion import MeanReversionStrategy
 
 
 st.set_page_config(page_title="QuantForge", page_icon="📈", layout="wide")
+configure_logging()
+logger = logging.getLogger(__name__)
+if not st.session_state.get("quantforge_started"):
+    logger.info("application_started", extra={"component": "runtime"})
+    st.session_state["quantforge_started"] = True
 st.title("QuantForge")
 st.caption("Historical strategy research and backtesting")
 
@@ -61,6 +69,37 @@ if stored_scan is not None:
         st.dataframe(pd.DataFrame(stored_scan["results"]), hide_index=True, use_container_width=True)
     else:
         st.info("Scan controls changed. Run the scan again to view results for this configuration.")
+
+st.header("Monitoring and diagnostics")
+health = health_report(provider_configured=bool(os.getenv("ALPACA_API_KEY") and os.getenv("ALPACA_SECRET_KEY")))
+st.metric("Application status", health["status"].upper())
+monitor_columns = st.columns(3)
+monitor_columns[0].metric("Market data", health["checks"]["market_data"]["state"].upper())
+monitor_columns[1].metric("Scheduler", health["checks"]["scheduler"]["state"].upper())
+monitor_columns[2].metric("Broker", "UNAVAILABLE")
+with st.expander("Component health details"):
+    st.json({name: {"state": item["state"], "detail": item["detail"]}
+             for name, item in health["checks"].items()})
+scan_metrics = health["metrics"]["scans"]
+data_metrics = health["metrics"]["market_data"]
+st.caption(f"Scans: {scan_metrics['total']} total, {scan_metrics['successful']} successful, "
+           f"{scan_metrics['failed']} failed; consecutive failures: {scan_metrics['consecutive_failures']}. "
+           f"Last outcome: {scan_metrics['last_outcome'] or 'none'}; "
+           f"last successful scan: {scan_metrics['last_successful_scan_at'] or 'none'}.")
+if data_metrics["last_outcome"]:
+    freshness = (f"{data_metrics['latest_age_seconds']:.0f}s old" if data_metrics["latest_age_seconds"] is not None
+                 else "age unavailable")
+    st.caption(f"Market-data fetch: {data_metrics['last_outcome']} for {data_metrics['last_symbol']}; "
+               f"latest bar {data_metrics['latest_timestamp']} ({freshness}); "
+               f"{data_metrics['fetches']} fetches, {data_metrics['failures']} failures.")
+else:
+    st.caption("Market-data fetch: no outcome recorded in this process. Provider credentials alone do not establish health.")
+if health["metrics"]["safety_block_reason"]:
+    st.warning(f"Safety block: {health['metrics']['safety_block_reason']}")
+if scan_metrics["recent_errors"]:
+    with st.expander("Recent scan errors"):
+        st.dataframe(pd.DataFrame(scan_metrics["recent_errors"]), hide_index=True, use_container_width=True)
+st.caption("Metrics reset when the Python process restarts. Scheduler run history is persisted only when a SchedulerStore is configured. Broker connectivity and order submission are unavailable.")
 
 st.header("US Market Data Explorer")
 st.caption(

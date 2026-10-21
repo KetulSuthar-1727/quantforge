@@ -3,10 +3,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+import logging
 import re
 import sqlite3
 from typing import Optional, Protocol
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 
 def _now():
@@ -268,6 +271,9 @@ class RiskManager:
             reason = "short selling is disabled or position is insufficient"
         elif abs(store.exposure(request.symbol) + (request.quantity if request.side == Side.BUY else -request.quantity)) > self.limits.max_position_quantity:
             reason = "maximum position quantity exceeded"
+        if reason != "approved":
+            logger.warning("risk_rejection", extra={"component": "risk", "symbol": request.symbol,
+                                                    "reason": reason, "kill_switch": self.kill_switch})
         return RiskDecision(reason == "approved", reason, evaluated_limits=checks)
 
 
