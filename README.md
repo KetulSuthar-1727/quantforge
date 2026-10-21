@@ -199,12 +199,24 @@ BUY, SELL, and HOLD are strategy opinions. They do not imply risk approval, orde
 ## Metrics conventions and limits
 
 - Total return compares the final marked portfolio value with initial capital.
-- Annualized return compounds over elapsed calendar time between the first and last portfolio snapshots (365.25 days per year).
-- Daily returns are successive snapshot returns; annualized volatility and Sharpe use sample standard deviation and 252 periods per year.
-- The annual risk-free decimal rate is converted to a daily effective rate. Sortino downside deviation includes every observation relative to that daily threshold.
+- Annualized return compounds over elapsed calendar time between the first and last portfolio snapshots (365.25 days per year), when the cadence can be established.
+- Period returns are successive snapshot returns; daily annualized volatility and Sharpe use sample standard deviation and 252 periods per year. Intraday annualization uses the documented 6.5-hour session assumption below.
+- The annual risk-free decimal rate is converted to an effective rate for the inferred observation period. Sortino downside deviation includes every period return relative to that threshold.
 - Maximum drawdown is a nonpositive fraction, so `-0.20` means a 20% peak-to-trough decline.
 - Realized trade P&L uses FIFO matching of recorded long buys and sells and includes proportional entry and exit commissions. Unmatched open shares are omitted. Slippage is already reflected in recorded execution prices, so it is not subtracted a second time.
-- A zero denominator produces a ratio of zero; profit factor is infinite when there are gains and no losses. The dashboard labels this case explicitly.
+- Statistics without required observations are unavailable. Profit factor is infinite when there are gains and no losses. The dashboard labels unavailable and infinite values explicitly.
+
+## Phase 13: portfolio analytics and strategy evaluation
+
+`engine.metrics.PerformanceMetrics` is the shared analytics implementation for recorded backtest histories. Its authoritative sources are the close-marked `portfolio_history` for equity, cumulative return, period return, drawdown and risk statistics, and `trade_history` for recorded trade count, FIFO realized P&L, win/loss statistics, transaction costs and notional turnover. Empty histories or statistics without enough observations return `None` (unavailable); a genuine measured zero remains `0`. Malformed, non-finite, duplicate-date, or out-of-order histories raise `ValueError`.
+
+Total return compares final marked value with initial capital. Calendar annualized return uses first-to-last elapsed time and is shown only for a recognized regular observation cadence. Daily data uses 252 periods per year; supported intraday data uses 252 × (390 minutes / bar length), assuming 6.5-hour US equity sessions. Annualized volatility uses sample standard deviation of period returns. Sharpe uses an annual effective risk-free rate converted to the inferred period rate; Sortino uses downside deviation against that same threshold. Fewer than two period returns cannot support volatility or risk-adjusted ratios. Maximum drawdown is peak-relative; duration is reported in observation counts and elapsed days through recovery, including a still-open underwater duration.
+
+Commission is stored in the historical `transaction_cost` field and included in cash and realized FIFO P&L. Slippage is applied to recorded execution price, but the reference bar price is not retained with each trade, so a separate slippage-cost estimate is unavailable. The historical backtest does not save per-bar position quantities; exposure is therefore unavailable unless a caller supplies aligned position observations. Turnover is recorded trade notional divided by average observed portfolio value and is unavailable without both sources. Fees and transaction costs currently describe the same stored commission amount, not an additional fee category.
+
+Buy-and-hold is a valid benchmark only on the same loaded dataset, dates, symbol, and valuation observations; it starts at the first dataset close and has no trading costs. `compare_runs` supports in-memory run results and rejects conflicting dataset fingerprints, symbols, or observation dates. Run metadata is not persisted by the repository, so comparing prior runs requires retaining their result dictionaries. Historical backtests, local C++ simulator output, and broker-confirmed paper trading are separate result types; no C++ or broker performance is inferred by this layer. These metrics do not correct lookahead or survivorship bias unless the source strategy/data explicitly address them, and do not establish profitability or production readiness.
+
+The dashboard displays analytics for the explicitly selected and completed historical backtest. Rendering analytics does not fetch data, run a scan, submit an order, or change trading state. Missing metrics are labeled unavailable. To run the relevant checks, use `PYTHONPATH=build venv/bin/python -m pytest` and `(cd build && ctest --output-on-failure)`.
 
 Portfolio return includes mark-to-market gains and costs in portfolio cash/value. Trade P&L is realized P&L for matched quantities and is a separate statistic. These historical results do not model market impact, taxes, corporate actions, short selling, or operational constraints.
 

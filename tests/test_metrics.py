@@ -8,7 +8,7 @@ from engine.metrics import PerformanceMetrics
 def metrics(values, dates=None, trades=(), capital=100.0):
     dates = dates or [f"2026-01-{day:02d}" for day in range(1, len(values) + 1)]
     history = [{"date": date, "portfolio_value": value} for date, value in zip(dates, values)]
-    return PerformanceMetrics(capital, history, trades)
+    return PerformanceMetrics(capital, history, trades, timeframe="1Day")
 
 
 def test_returns_and_annualization_use_elapsed_dates():
@@ -19,12 +19,14 @@ def test_returns_and_annualization_use_elapsed_dates():
 
 
 def test_empty_and_single_observation_histories():
-    assert metrics([]).total_return() == 0
+    assert metrics([]).total_return() is None
+    assert metrics([]).cumulative_returns() is None
     single = metrics([125])
     assert single.daily_returns() == []
-    assert single.annualized_volatility() == 0
-    assert single.sharpe_ratio() == 0
-    assert single.sortino_ratio() == 0
+    assert single.annualized_return() is None
+    assert single.annualized_volatility() is None
+    assert single.sharpe_ratio() is None
+    assert single.sortino_ratio() is None
 
 
 def test_sharpe_sortino_and_drawdown_conventions():
@@ -41,9 +43,7 @@ def test_sharpe_sortino_and_drawdown_conventions():
 
 def test_zero_volatility_is_finite_and_zero():
     item = metrics([100, 101, 102.01])
-    # The equal 1% returns have a zero sample deviation up to float precision.
-    assert math.isfinite(item.sharpe_ratio())
-    assert item.sharpe_ratio() == 0
+    assert item.sharpe_ratio() is None
     assert item.annualized_volatility() == pytest.approx(0)
 
 
@@ -71,7 +71,7 @@ def test_open_lots_are_excluded_and_profit_factor_without_losses_is_infinite():
     ])
     assert item.trade_pnl() == pytest.approx([4.9])
     assert item.profit_factor() == math.inf
-    assert metrics([100]).profit_factor() == 0
+    assert metrics([100]).profit_factor() is None
 
 
 def test_invalid_capital_dates_and_nonpositive_return_base_are_explicit():
@@ -90,9 +90,8 @@ def test_annualized_return_rejects_nonpositive_ending_value(ending_value):
 
 
 def test_annualized_return_rejects_unsorted_history_dates():
-    item = metrics([100, 110], ["2026-02-01", "2026-01-01"])
     with pytest.raises(ValueError, match="chronological"):
-        item.annualized_return()
+        metrics([100, 110], ["2026-02-01", "2026-01-01"])
 
 
 def test_all_loss_trades_have_no_winners_and_zero_profit_factor():
@@ -102,7 +101,7 @@ def test_all_loss_trades_have_no_winners_and_zero_profit_factor():
     ])
     assert item.trade_pnl() == pytest.approx([-4])
     assert item.win_rate() == 0
-    assert item.average_win() == 0
+    assert item.average_win() is None
     assert item.average_loss() == pytest.approx(-4)
     assert item.profit_factor() == 0
 
@@ -131,3 +130,43 @@ def test_drawdown_remains_peak_relative_after_a_positive_peak():
     item = metrics([100, 0, -10, 50])
     assert item.drawdowns() == pytest.approx([0, -1, -1.1, -0.5])
     assert item.maximum_drawdown() == pytest.approx(-1.1)
+
+
+def test_intraday_annualization_uses_explicit_bar_timeframe():
+    item = metrics([100, 101, 100], [
+        "2026-01-02T14:30:00", "2026-01-02T14:35:00", "2026-01-02T14:40:00",
+    ])
+    item.timeframe = "5Min"
+    assert item.periods_per_year() == pytest.approx(252 * 78)
+    assert item.annualized_volatility() is not None
+
+
+def test_drawdown_duration_records_recovery_and_current_underwater_period():
+    item = metrics([100, 90, 95, 100, 98], [
+        "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05",
+    ])
+    assert item.drawdown_duration() == {
+        "max_observations": 3, "max_days": 3, "current_observations": 1, "current_days": 1,
+    }
+
+
+def test_transaction_costs_turnover_and_missing_exposure():
+    item = metrics([100, 110], ["2026-01-01", "2026-01-02"], trades=[
+        {"side": "BUY", "quantity": 2, "price": 10, "transaction_cost": 1},
+    ])
+    assert item.transaction_costs() == 1
+    assert item.fees() == 1
+    assert item.slippage_cost() is None
+    assert item.trade_count() == 1
+    assert item.turnover() == pytest.approx(20 / 105)
+    assert item.exposure() is None
+
+
+def test_malformed_history_and_incompatible_benchmark_runs_are_rejected():
+    with pytest.raises(ValueError, match="strictly chronological"):
+        metrics([100, 101], ["2026-01-01", "2026-01-01"])
+    from engine.metrics import compare_runs
+    left = {"run_metadata": {"configuration": {"dataset_fingerprint": "a"}}, "portfolio_history": []}
+    right = {"run_metadata": {"configuration": {"dataset_fingerprint": "b"}}, "portfolio_history": []}
+    with pytest.raises(ValueError, match="fingerprints"):
+        compare_runs(left, right)
